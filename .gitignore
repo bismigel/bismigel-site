@@ -1,0 +1,4 @@
+# Generated site (CI exports org/ -> public/, then builds the image)
+/public/
+.DS_Store
+*.log

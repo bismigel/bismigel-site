@@ -1,0 +1,10 @@
+.git
+.gitignore
+.github
+org
+static
+deploy
+build.el
+README.md
+AGENTS.md
+.DS_Store
