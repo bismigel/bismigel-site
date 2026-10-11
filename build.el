@@ -38,7 +38,8 @@
          :auto-sitemap t
          :sitemap-title ""
          :sitemap-filename "index.org"
-         :sitemap-sort-files anti-chronologically)
+         :sitemap-sort-files anti-chronologically
+         :exclude "index\\.org")
         ("assets"
          :base-directory "static/"
          :publishing-directory "public/"

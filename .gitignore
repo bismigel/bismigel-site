@@ -2,3 +2,6 @@
 /public/
 .DS_Store
 *.log
+
+# org-publish sitemap source (generated)
+/org/index.org
