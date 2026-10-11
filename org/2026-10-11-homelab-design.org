@@ -1,0 +1,85 @@
+#+TITLE: The design of the homelab
+#+DATE: 2026-10-11
+
+I finally have the homelab shaped the way I want, so this first post is a tour of
+how it's put together and *why* the pieces are where they are.
+
+* Two machines, two jobs
+
+There are two physical boxes:
+
+- *sitaw* — an AMD Ryzen 5 4600G (6c/12t). This is the **hosting** box.
+- *calamansi* — an Intel i5-7500T. This is the **media** box (the arr stack:
+  Sonarr, Radarr, Prowlarr, Bazarr, qBittorrent, Jellyfin).
+
+The split is deliberate: one machine serves websites, the other is a big, dumb
+file/NAS-style box for media. Keeping them separate means a bad deploy or a
+transcoding spike on one doesn't take out the other.
+
+* Everything is NixOS
+
+Both run NixOS, declared in a single flake. The OS is code: hosts, modules,
+disko disk layouts, and a =deploy-rs= hook so I can push a rebuild over SSH:
+
+#+begin_src shell
+nix run github:serokell/deploy-rs -- .#sitaw
+#+end_src
+
+There's no half-configured box drifting over time. If I need to rebuild a
+machine, I reinstall from the same flake and I'm back to a known state.
+
+* Kubernetes, but boring
+
+Each box runs a single-node ~k3s~. I disabled Traefik and the built-in service
+load balancer on purpose and use *ingress-nginx* instead, so ingress is explicit
+and identical on both machines.
+
+* GitOps with ArgoCD
+
+Cluster state lives in git and *ArgoCD* reconciles it. One repo
+(~bakuran-gitops~) is the source of truth: an app-of-apps root points at a folder
+of =Application= definitions, and infra add-ons (ingress-nginx, sealed-secrets)
+sit alongside the apps.
+
+I don't run deploys from CI. Instead:
+
+1. I push application code.
+2. CI builds a container image and pushes it to GHCR.
+3. CI bumps the image tag in the manifests.
+4. ArgoCD notices and rolls it out.
+
+CI never holds cluster credentials — it only pushes a tag. That's the whole
+trick, and it's why a compromised build can't touch the cluster.
+
+* Applications are reproducible
+
+Every app repo ships a =deploy/k8s/= folder (Deployment, Service, Ingress) and a
+GitHub Actions workflow that builds and pushes its image. To start something new
+I use ~homelab-app-template~, which wires all of that up — I just write the app.
+
+* The edge is one Cloudflare tunnel
+
+Nothing is port-forwarded. A single ~cloudflared~ tunnel connects out to
+Cloudflare, and public hostnames (like this one) route to ~ingress-nginx~ on the
+hosting box. TLS terminates at Cloudflare.
+
+* Secrets
+
+Cluster secrets are *Sealed Secrets* — encrypted in git, decrypted by a
+controller in the cluster. Host-level secrets (like the tunnel credentials) are
+*SOPS*/age encrypted in the NixOS repo and decrypted at activation, keyed off
+each machine's SSH host key.
+
+* What it looks like end to end
+
+#+begin_example
+push -> CI (build+push image+tag bump) -> ArgoCD -> k3s -> ingress-nginx
+                                                        -> cloudflared -> internet
+#+end_example
+
+* What's next
+
+- Move the arr stack from hand-applied manifests into ArgoCD.
+- A second Cloudflare-managed identity in front of the ArgoCD UI before I expose it.
+- More posts: the migration off Proxmox, sealing secrets, and the org-publish setup
+  behind this very site.

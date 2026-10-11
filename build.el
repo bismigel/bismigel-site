@@ -15,7 +15,7 @@
 (defconst site-header
   (concat "<header class=\"site-header\"><div class=\"wrap\">"
           "<a class=\"site-title\" href=\"/\">Miguel Arbis</a>"
-          "<nav class=\"nav\"><a href=\"/\">Posts</a></nav>"
+          "<nav class=\"nav\"><a href=\"/\">Posts</a><a href=\"/personal.html\">Play</a></nav>"
           "</div></header>"))
 
 (defconst site-footer
@@ -43,7 +43,7 @@
         ("assets"
          :base-directory "static/"
          :publishing-directory "public/"
-         :base-extension "css\\|js\\|png\\|jpe?g\\|svg\\|ico"
+         :base-extension "css\\|js\\|png\\|jpe?g\\|svg\\|ico\\|html"
          :publishing-function org-publish-attachment
          :recursive t)))
 
