@@ -2,7 +2,7 @@
 ;;
 ;; Emacs-native static site: no Hugo, no other SSG. Run with:
 ;;   emacs --batch -l build.el
-;; Org files in org/ -> HTML in public/; static/ -> copied; home = post list.
+;; Org files in org/ -> HTML in public/; static/ -> copied; home = intro + posts.
 
 (require 'ox-publish)
 
@@ -15,13 +15,26 @@
 (defconst site-header
   (concat "<header class=\"site-header\"><div class=\"wrap\">"
           "<a class=\"site-title\" href=\"/\">Miguel Arbis</a>"
-          "<nav class=\"nav\"><a href=\"/\">Posts</a><a href=\"/personal.html\">Play</a></nav>"
-          "</div></header>"))
+          "<nav class=\"nav\"><a href=\"/\">Posts</a>"
+          "<a href=\"https://github.com/prawnfarmerdev\">GitHub</a>"
+          "</nav></div></header>"))
 
 (defconst site-footer
   (concat "<footer class=\"site-footer\"><div class=\"wrap\">"
           "© Miguel Arbis · published from Org with org-publish"
           "</div></footer>"))
+
+(defun my-sitemap (title list)
+  "Homepage: a short intro plus the list of posts."
+  (concat
+   "#+TITLE: " title "\n\n"
+   "Hi — I'm Miguel. I run a small, two-machine homelab (NixOS + k3s + ArgoCD)\n"
+   "and write up the design, the migrations, and the mistakes here.\n\n"
+   "This whole site is written in Emacs and published straight from Org with\n"
+   "=org-publish= — no static-site generator in the middle.\n\n"
+   "* Writing\n"
+   (org-list-to-org list)
+   "\n"))
 
 (setq org-publish-project-alist
       `(("site"
@@ -39,11 +52,12 @@
          :sitemap-title ""
          :sitemap-filename "index.org"
          :sitemap-sort-files anti-chronologically
+         :sitemap-function my-sitemap
          :exclude "index\\.org")
         ("assets"
          :base-directory "static/"
          :publishing-directory "public/"
-         :base-extension "css\\|js\\|png\\|jpe?g\\|svg\\|ico\\|html"
+         :base-extension "css\\|js\\|png\\|jpe?g\\|svg\\|ico"
          :publishing-function org-publish-attachment
          :recursive t)))
 
