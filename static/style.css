@@ -50,6 +50,6 @@ img { max-width: 100%; height: auto; }
 .site-footer { border-top: 1px solid var(--border); padding: 2rem 0; color: var(--muted); font-size: 0.85rem; text-align: center; }
 
 /* GitHub icon in the nav */
-.nav a.nav-icon { display: inline-flex; align-items: center; color: var(--muted); }
-.nav a.nav-icon:hover { color: var(--fg); }
-.nav a.nav-icon svg { display: block; }
+.nav a.nav-avatar { display: inline-flex; align-items: center; color: var(--muted); }
+.nav a.nav-avatar:hover { color: var(--fg); }
+.nav a.nav-avatar svg { display: block; }
