@@ -63,3 +63,5 @@
 
 (org-publish-all t)
 (message "✓ site exported to public/")
+
+;; (rebuild trigger)
