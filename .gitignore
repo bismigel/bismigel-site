@@ -7,3 +7,6 @@
 
 .DS_Store
 *.log
+
+# Hugo build lock
+.hugo_build.lock
