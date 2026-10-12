@@ -1,5 +1,5 @@
 #+TITLE: How this site is built
-#+DATE: 2026-10-12
+#+DATE: 2026-10-02
 #+FILETAGS: hugo:emacs:ci
 
 I write in Org, convert with pandoc, and build with Hugo. Here is the whole
@@ -11,7 +11,7 @@ Every post is a file in =org/=. This one starts like:
 
 #+begin_src org
 #+TITLE: How this site is built
-#+DATE: 2026-10-12
+#+DATE: 2026-10-02
 #+FILETAGS: hugo:emacs:ci
 
 Body text in Org.

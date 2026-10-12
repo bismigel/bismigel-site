@@ -1,0 +1,6 @@
+/* bismigel.dev overrides (loaded after the theme CSS) */
+
+:root,
+:root[data-theme="dark"] {
+  --bg: #000000;
+}

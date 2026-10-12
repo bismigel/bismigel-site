@@ -1,5 +1,5 @@
 #+TITLE: The design of the homelab
-#+DATE: 2026-10-11
+#+DATE: 2026-09-15
 #+FILETAGS: homelab:design:nixos
 
 I finally have the homelab shaped the way I want, so this first post is a tour of
