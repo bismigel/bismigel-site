@@ -49,7 +49,7 @@ th, td { border: 1px solid var(--border); padding: 0.5rem 0.75rem; text-align: l
 img { max-width: 100%; height: auto; }
 .site-footer { border-top: 1px solid var(--border); padding: 2rem 0; color: var(--muted); font-size: 0.85rem; text-align: center; }
 
-/* GitHub icon in the nav */
-.nav a.nav-avatar { display: inline-flex; align-items: center; color: var(--muted); }
-.nav a.nav-avatar:hover { color: var(--fg); }
-.nav a.nav-avatar img { display: block; border-radius: 50%; }
+/* Site brand: title + GitHub profile picture beside it */
+.site-brand { display: inline-flex; align-items: center; gap: 0.55rem; }
+.nav-avatar { display: inline-flex; align-items: center; line-height: 0; }
+.nav-avatar img { display: block; width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--border); }

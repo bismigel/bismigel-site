@@ -14,11 +14,14 @@
 
 (defconst site-header
   (concat "<header class=\"site-header\"><div class=\"wrap\">"
+          "<span class=\"site-brand\">"
           "<a class=\"site-title\" href=\"/\">bismigel</a>"
-          "<nav class=\"nav\"><a href=\"/\">Posts</a>"
           "<a class=\"nav-avatar\" href=\"https://github.com/bismigel\" aria-label=\"GitHub profile\" title=\"GitHub\">"
-          "<img src=\"https://github.com/bismigel.png\" alt=\"Miguel on GitHub\" width=\"30\" height=\"30\" loading=\"lazy\"></a>"
-          "</nav></div></header>"))
+          "<img src=\"https://github.com/bismigel.png\" alt=\"Miguel on GitHub\" width=\"28\" height=\"28\" loading=\"lazy\"></a>"
+          "</span>"
+          "<nav class=\"nav\"><a href=\"/\">Posts</a>"
+          "<a href=\"https://github.com/bismigel\">GitHub</a></nav>"
+          "</div></header>"))
 
 (defconst site-footer
   (concat "<footer class=\"site-footer\"><div class=\"wrap\">"
