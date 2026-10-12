@@ -1,0 +1,31 @@
+# Permanently redirect the old domain to the new one.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: miguelarbis-redirect
+  namespace: apps
+  annotations:
+    nginx.ingress.kubernetes.io/permanent-redirect: https://bismigel.dev$request_uri
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: miguelarbis.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: miguelarbis-site
+                port:
+                  number: 80
+    - host: www.miguelarbis.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: miguelarbis-site
+                port:
+                  number: 80
