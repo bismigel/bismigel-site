@@ -48,3 +48,8 @@ table { border-collapse: collapse; width: 100%; margin: 1.25rem 0; }
 th, td { border: 1px solid var(--border); padding: 0.5rem 0.75rem; text-align: left; }
 img { max-width: 100%; height: auto; }
 .site-footer { border-top: 1px solid var(--border); padding: 2rem 0; color: var(--muted); font-size: 0.85rem; text-align: center; }
+
+/* GitHub icon in the nav */
+.nav a.nav-icon { display: inline-flex; align-items: center; color: var(--muted); }
+.nav a.nav-icon:hover { color: var(--fg); }
+.nav a.nav-icon svg { display: block; }
