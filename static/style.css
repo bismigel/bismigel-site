@@ -53,3 +53,17 @@ img { max-width: 100%; height: auto; }
 .site-brand { display: inline-flex; align-items: center; gap: 0.55rem; }
 .nav-avatar { display: inline-flex; align-items: center; line-height: 0; }
 .nav-avatar img { display: block; width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--border); }
+
+/* Header: full-width bar — brand (icon + title) left, nav right, vertical-centered */
+.site-header { max-width: 100%; margin: 0; padding: 1.25rem 1.5rem; }
+.site-header .wrap { max-width: 100%; margin: 0; display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.site-brand { display: flex; align-items: center; gap: 0.55rem; }
+.site-title { line-height: 1; }
+.nav { display: flex; align-items: center; }
+.nav a:first-child { margin-left: 0; }
+.nav-avatar { display: inline-flex; align-items: center; line-height: 0; }
+.nav-avatar img { display: block; vertical-align: middle; }
+
+@media (max-width: 600px) {
+  .site-header .wrap { flex-wrap: wrap; }
+}
