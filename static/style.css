@@ -52,4 +52,4 @@ img { max-width: 100%; height: auto; }
 /* GitHub icon in the nav */
 .nav a.nav-avatar { display: inline-flex; align-items: center; color: var(--muted); }
 .nav a.nav-avatar:hover { color: var(--fg); }
-.nav a.nav-avatar svg { display: block; }
+.nav a.nav-avatar img { display: block; border-radius: 50%; }
