@@ -9,14 +9,19 @@ how it's put together and *why* the pieces are where they are.
 
 There are two physical boxes:
 
-- The hosting box: an AMD Ryzen 5 4600G (6c/12t). This was leftover parts from my old pc I replaced a gen 2 ryzen with 4600g (which I heard was better for power. bless the AM4 platform)
-  It serves the websites and any experimental apps that I want to deploy.
-  
-- The media box: an Intel i5-7500T. I bought this for 100$ from a guy from facebook marketplace.
-  I've read  somewhere that this generation supports quicksync and can support hardware decoding. It will run my media stack.
+- The *hosting box*: an AMD Ryzen 5 4600G (6c/12t). Leftover parts from my old
+  PC after I dropped in a 4600G (better perf-per-watt, bless AM4). It serves the
+  websites, runs the cluster's platform pieces, and hosts whatever I want to
+  experiment with.
 
-Based on that, I deliberately have split their apps The 4600g having more cores means its better for more general app and experiment
-and the 7500t supporting quicksync will contain my whole media stack.
+- The *media box*: an Intel i5-7500T, bought for $100 off Marketplace. This
+  generation has QuickSync, so it does hardware transcoding. It runs my whole
+  media stack.
+
+The split is deliberate, not accidental. The 4600G has more cores, which suits
+general apps and experimentation; the 7500T's QuickSync is wasted on anything
+that is not media. So the entire media stack lives on the Intel box and
+everything else lives on the AMD box.
 
 * Everything is NixOS
 
@@ -41,23 +46,44 @@ use existing gitops tools like Flux and ArgoCd instead of having something like 
 
 Each box runs a single-node ~k3s~. I disabled Traefik and the built-in service
 load balancer on purpose and use *ingress-nginx* instead, so ingress is explicit
-and identical on both machines.
+rather than magic. It only runs where it earns its keep: the hosting box behind
+the tunnel. The media box needs no ingress — it is reached by its own NodePorts
+on the LAN.
 
 * GitOps with ArgoCD
 
-
-
 Cluster state lives in git and *ArgoCD* reconciles it. One repo
-(~bakuran-gitops~) is the source of truth: an app-of-apps root points at a folder
-of =Application= definitions, and infra add-ons (ingress-nginx, sealed-secrets)
-sit alongside the apps.
+(~bakuran-gitops~) is the source of truth.
 
-I do not run deploys from CI. Instead:
+The part I am happiest with: there is a *single ArgoCD control plane*, and it
+lives on the hosting box. It manages *both* clusters — the hosting box
+in-cluster, and the media box registered as an *external cluster*. I do not run a
+second ArgoCD on the media box, and I do not copy repo credentials between them.
+
+The repo is one app-of-apps root pointing at a folder of =Application=
+definitions, split per cluster, plus an =ApplicationSet= for anything that should
+run everywhere:
+
+#+begin_example
+bakuran-gitops/
+  bootstrap/root-app.yaml       # the one root
+  clusters/                     # cluster registrations
+  applications/
+    <cluster>/...               # one folder per cluster
+    node-exporter-appset.yaml   # shared -> every cluster
+  manifests/<app>/...           # raw manifests the apps point at
+#+end_example
+
+The shared bits use an =ApplicationSet= with a *cluster generator*: it enumerates
+the clusters ArgoCD knows about, so registering a new cluster enrolls it
+automatically instead of duplicating manifests.
+
+I still do not run deploys from CI:
 
 1. I push application code.
 2. CI builds a container image and pushes it to GHCR.
 3. CI bumps the image tag in the manifests.
-4. ArgoCD notices and rolls it out.
+4. ArgoCD notices and rolls it out — on whichever cluster the app targets.
 
 CI never holds cluster credentials. It only pushes a tag. That is the whole
 trick, and it is why a compromised build cannot touch the cluster.
@@ -84,6 +110,7 @@ machine's SSH host key.
 * What it looks like end to end
 
 #+begin_example
-push -> CI (build+push image+tag bump) -> ArgoCD -> k3s -> ingress-nginx
-                                                        -> cloudflared -> internet
+push -> CI (build + push image + bump tag) -> ArgoCD -> both clusters
+                                                      -> ingress-nginx
+                                                      -> cloudflared -> internet
 #+end_example
