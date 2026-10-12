@@ -12,13 +12,15 @@ org/*.org ──emacs --batch -l build.el──▶ public/ ──docker──▶
 ## Rules
 
 1. **Content lives in `org/*.org`.** Add posts there, not in `public/`
-   (`public/` is generated and git-ignored).
+   (`public/` is generated and git-ignored). Keep work-in-progress in
+   `org/drafts/` — it is committed but **never published** (excluded in `build.el`).
 2. **One Org file = one page.** Use `#+TITLE:` and `#+DATE:`; the home page is the
    auto-generated `index` (list of posts, newest first).
-3. **Styling** is `static/style.css` (PaperMod-inspired). Keep it minimal.
-4. **Don't hand-edit the image tag** in `deploy/k8s/deployment.yaml` — CI owns it.
-5. `build.el` defines the `org-publish` projects; only change it to alter site
-   structure/export behavior.
+3. **Header/footer live in `preamble.html` + `postamble.html`** (edited directly,
+   not in elisp). `build.el` reads them via `read-partial`.
+4. **Styling** is `static/style.css` (PaperMod-inspired). Keep it minimal.
+5. **Don't hand-edit the image tag** in `deploy/k8s/deployment.yaml` — CI owns it.
+6. Builds run with `emacs -Q --batch -l build.el` (no user init) for reproducibility.
 
 ## Verify before pushing
 

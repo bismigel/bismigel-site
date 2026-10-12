@@ -12,21 +12,18 @@
       org-html-doctype "html5"
       org-html-html5-fancy t)
 
-(defconst site-header
-  (concat "<header class=\"site-header\"><div class=\"wrap\">"
-          "<span class=\"site-brand\">"
-          "<a class=\"site-title\" href=\"/\">bismigel</a>"
-          "<a class=\"nav-avatar\" href=\"https://github.com/bismigel\" aria-label=\"GitHub profile\" title=\"GitHub\">"
-          "<img src=\"https://github.com/bismigel.png\" alt=\"Miguel on GitHub\" width=\"28\" height=\"28\" loading=\"lazy\"></a>"
-          "</span>"
-          "<nav class=\"nav\"><a href=\"/\">Posts</a>"
-          "<a href=\"https://github.com/bismigel\">GitHub</a></nav>"
-          "</div></header>"))
+;; Header/footer live in separate HTML files (easier to edit than elisp strings).
+(defconst site-dir
+  (file-name-directory (or load-file-name buffer-file-name)))
 
-(defconst site-footer
-  (concat "<footer class=\"site-footer\"><div class=\"wrap\">"
-          "© bismigel · published from Org with org-publish"
-          "</div></footer>"))
+(defun read-partial (name)
+  "Return the trimmed contents of the HTML partial NAME next to build.el."
+  (with-temp-buffer
+    (insert-file-contents (expand-file-name name site-dir))
+    (string-trim (buffer-string))))
+
+(defconst site-header (read-partial "preamble.html"))
+(defconst site-footer (read-partial "postamble.html"))
 
 (defun my-sitemap (title list)
   "Homepage: a short bio plus the list of posts."
@@ -59,7 +56,7 @@
          :sitemap-filename "index.org"
          :sitemap-sort-files anti-chronologically
          :sitemap-function my-sitemap
-         :exclude "index\\.org")
+         :exclude "\\(?:index\\.org\\|drafts/.*\\.org\\)")
         ("assets"
          :base-directory "static/"
          :publishing-directory "public/"

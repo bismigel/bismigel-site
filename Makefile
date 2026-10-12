@@ -19,7 +19,7 @@ compile: deploy
 
 build:
 	@echo ">> exporting org/ -> public/"
-	@$(EMACS) --batch -l build.el
+	@$(EMACS) -Q --batch -l build.el
 
 deploy: build
 	@git add -A
