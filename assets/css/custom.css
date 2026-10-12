@@ -10,3 +10,9 @@
     --bg: #000000;
   }
 }
+
+/* Disable the logo colour-flicker animation (intro on load + on hover). */
+.logo-letters.intro span,
+.logo-letters:hover span {
+  animation: none;
+}
