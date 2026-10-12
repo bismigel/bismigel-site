@@ -9,15 +9,19 @@ how it's put together and *why* the pieces are where they are.
 
 There are two physical boxes:
 
-- The hosting box: an AMD Ryzen 5 4600G (6c/12t). It serves the websites.
-- The media box: an Intel i5-7500T. It runs the arr stack (Sonarr, Radarr,
-  Prowlarr, Bazarr, qBittorrent, Jellyfin).
+- The hosting box: an AMD Ryzen 5 4600G (6c/12t). This was leftover parts from my old pc I replaced a gen 2 ryzen with 4600g (which I heard was better for power. bless the AM4 platform)
+  It serves the websites and any experimental apps that I want to deploy.
+  
+- The media box: an Intel i5-7500T. I bought this for 100$ from a guy from facebook marketplace.
+  I've read  somewhere that this generation supports quicksync and can support hardware decoding. It will run my media stack.
 
-The split is deliberate. One machine serves websites, the other is a big, dumb
-file and media server. Keeping them separate means a bad deploy or a transcoding
-spike on one does not take out the other.
+Based on that, I deliberately have split their apps The 4600g having more cores means its better for more general app and experiment
+and the 7500t supporting quicksync will contain my whole media stack.
 
 * Everything is NixOS
+
+Initially this was deployed in proxmox lxc but i didnt like the additional layer that I have to work with before getting to the container.
+Using baremetal will remove that layer. I chose nixos specifically for the ease of configuration and avoiding drift from spec.
 
 Both run NixOS, declared in a single flake. The OS is code: hosts, modules, disko
 disk layouts, and a =deploy-rs= hook so I can push a rebuild over SSH:
@@ -31,11 +35,17 @@ machine, I reinstall from the same flake and I am back to a known state.
 
 * Kubernetes, but boring
 
+This would have worked with just docker instead of a single node k3s but I specifically chose this in order
+to experiment and troubleshoot and experience managing a kubernetes architecture. This would also mean I can
+use existing gitops tools like Flux and ArgoCd instead of having something like an ansible job that deploys to servers.
+
 Each box runs a single-node ~k3s~. I disabled Traefik and the built-in service
 load balancer on purpose and use *ingress-nginx* instead, so ingress is explicit
 and identical on both machines.
 
 * GitOps with ArgoCD
+
+
 
 Cluster state lives in git and *ArgoCD* reconciles it. One repo
 (~bakuran-gitops~) is the source of truth: an app-of-apps root points at a folder
