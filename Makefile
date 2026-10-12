@@ -27,6 +27,7 @@ deploy: build
 		echo ">> nothing to deploy"; \
 	else \
 		git commit -q -m "$${MSG:-deploy: $$(date -u +%Y-%m-%dT%H:%M:%SZ)}"; \
+		git pull --rebase --autostash -q origin "$$(git rev-parse --abbrev-ref HEAD)" 2>/dev/null || true; \
 		git push; \
 		echo ">> pushed — CI builds the image and ArgoCD deploys to bismigel.dev"; \
 	fi
