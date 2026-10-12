@@ -107,6 +107,10 @@ in the cluster. Host level secrets, such as the tunnel credentials, are
 *SOPS*/age encrypted in the NixOS repo and decrypted at activation, keyed off each
 machine's SSH host key.
 
+(Since writing this I moved the cluster half to a managed secret store, and put
+the two clusters under one control plane. The reasoning is in
+[[file:2026-10-12-choosing-the-architecture.org][Choosing the architecture]].)
+
 * What it looks like end to end
 
 #+begin_example
@@ -114,3 +118,10 @@ push -> CI (build + push image + bump tag) -> ArgoCD -> both clusters
                                                       -> ingress-nginx
                                                       -> cloudflared -> internet
 #+end_example
+
+* Where it went next
+
+That was the design at the start. A few decisions changed after living with it:
+how the two clusters are managed, where secrets live, and how you log in. I wrote
+the reasoning up separately in
+[[file:2026-10-12-choosing-the-architecture.org][Choosing the architecture]].
