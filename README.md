@@ -1,48 +1,56 @@
-# miguelarbis.dev
+# bismigel.dev
 
-Personal site published **straight from Org-mode** with Emacs' built-in
-`org-publish`. No Hugo, no Node/Go toolchain — just Emacs and a small nginx image.
+Personal site. Write in **Org**, convert with **pandoc**, build with **Hugo**
+(the [Omegion](https://github.com/omegion/hugo-omegion) theme), deploy with
+GHCR + ArgoCD.
 
-## How it works
+## Pipeline
 
 ```
-build.el + org/*.org ──(emacs --batch)──▶ public/*.html
-        └─ .github/workflows/release.yml: export ─▶ docker build ─▶ GHCR
-                                                     └─ ArgoCD ─▶ k8s ─▶ miguelarbis.dev
+org/*.org ──scripts/convert.sh (pandoc)──▶ content/posts/<slug>/index.md
+                                                └─ hugo ──▶ public/ ──nginx──▶ GHCR ──▶ ArgoCD
 ```
 
 ## Write a post
 
-Add an Org file in `org/`, e.g. `org/2026-10-11-my-homelab.org`:
+Add `org/YYYY-MM-DD-slug.org`:
 
 ```org
-#+TITLE: My homelab
-#+DATE: 2026-10-11
+#+TITLE: My post
+#+DATE: 2026-10-12
 
-Body text...
+Body in Org...
 ```
 
-Push to `main`. CI exports the Org files and deploys. The home page is the
-auto-generated list of posts (newest first).
+Then `make` (see below). The home page lists posts newest-first.
 
-## Preview locally
+## Local
 
 ```bash
-emacs --batch -l build.el          # -> public/
-python3 -m http.server -d public 8000   # then open http://localhost:8000
+make build     # convert org -> content, then hugo build into public/
+make serve     # convert + hugo server at http://localhost:1313
 ```
+
+Requires `pandoc` and Hugo **extended**; with Nix:
+`nix shell nixpkgs#pandoc nixpkgs#hugo`.
+
+## Deploy
+
+```bash
+make           # = convert + build + commit + push (org sources)
+```
+
+Pushing to `main` triggers CI, which runs `scripts/convert.sh`, `hugo --minify`,
+builds the nginx image, pushes it to GHCR, and bumps the image tag in
+`deploy/k8s/deployment.yaml`. ArgoCD then rolls it out to `bismigel.dev`.
 
 ## Layout
 
 | Path | Purpose |
 | --- | --- |
-| `org/*.org` | posts (each = one page); `index` is generated from these |
-| `static/style.css` | stylesheet (PaperMod-ish) |
-| `build.el` | org-publish config + export entrypoint |
-| `deploy/k8s/` | Deployment/Service/Ingress (host `miguelarbis.dev`) |
-| `.github/workflows/release.yml` | export → image → GHCR → tag bump |
-
-## Deploy
-
-ArgoCD (`bakuran-gitops/applications/miguelarbis-site.yaml`) points at this repo's
-`deploy/k8s`. Merging to `main` builds a new image; ArgoCD rolls it out.
+| `org/*.org` | posts (source of truth) |
+| `scripts/convert.sh` | pandoc: `org/` → `content/` |
+| `config/_default/` | Hugo config (Omegion) |
+| `themes/hugo-omegion` | theme (git submodule, pinned v1.3.0) |
+| `deploy/k8s/` | Deployment/Service/Ingress (`bismigel.dev`) |
+| `.github/workflows/release.yml` | convert → hugo → image → GHCR → tag bump |

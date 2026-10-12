@@ -1,25 +1,31 @@
-# bismigel-site — Org -> HTML (org-publish), then deploy.
+# bismigel-site — write in Org, convert with pandoc, build with Hugo, deploy.
 #
-#   make            export the site AND deploy (commit + push to main)
+#   make            convert org -> content, hugo build, then deploy (commit + push)
 #   make compile    alias for `make`
-#   make build      export only (no git)
-#   make serve      export, then preview at http://localhost:8000
-#   make clean      remove generated public/
+#   make convert    just run the pandoc conversion (org/ -> content/)
+#   make build      convert + hugo build into public/ (no git)
+#   make serve      convert + local preview at http://localhost:1313
+#   make clean      remove generated public/ and content/
 #
-# Deploy = git add/commit/push; CI builds the image and ArgoCD rolls it out to bismigel.dev.
+# Deploy = git add/commit/push (of the .org sources); CI converts + builds the
+# image and ArgoCD rolls it out to bismigel.dev.
 # Override the commit message:  make MSG="post: new entry"
 
-EMACS      ?= emacs
-SERVE_PORT ?= 8000
+PANDOC ?= pandoc
+HUGO   ?= hugo
+PORT   ?= 1313
 
-.PHONY: all compile build deploy serve clean
+.PHONY: all compile convert build deploy serve clean
 
 all: compile
 compile: deploy
 
-build:
-	@echo ">> exporting org/ -> public/"
-	@$(EMACS) -Q --batch -l build.el
+convert:
+	@scripts/convert.sh
+
+build: convert
+	@echo ">> hugo build"
+	@$(HUGO) --minify
 
 deploy: build
 	@git add -A
@@ -29,12 +35,11 @@ deploy: build
 		git commit -q -m "$${MSG:-deploy: $$(date -u +%Y-%m-%dT%H:%M:%SZ)}"; \
 		git pull --rebase --autostash -q origin "$$(git rev-parse --abbrev-ref HEAD)" 2>/dev/null || true; \
 		git push; \
-		echo ">> pushed — CI builds the image and ArgoCD deploys to bismigel.dev"; \
+		echo ">> pushed — CI converts + builds the image and ArgoCD deploys to bismigel.dev"; \
 	fi
 
-serve: build
-	@echo ">> serving public/ at http://localhost:$(SERVE_PORT)"
-	@python3 -m http.server -d public $(SERVE_PORT)
+serve: convert
+	@$(HUGO) server -D --bind 0.0.0.0 --port $(PORT)
 
 clean:
-	@rm -rf public
+	@rm -rf public content resources

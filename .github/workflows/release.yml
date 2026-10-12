@@ -20,14 +20,24 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history for enableGitInfo (Omegion "Updated" dates)
+          submodules: recursive # the hugo-omegion theme
 
-      - name: Install Emacs
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y emacs-nox
+      - name: Set up Hugo (extended)
+        uses: peaceiris/actions-hugo@v3
+        with:
+          hugo-version: "0.167.0"
+          extended: true
 
-      - name: Export site (org-publish -> public/)
-        run: emacs -Q --batch -l build.el
+      - name: Install pandoc
+        run: sudo apt-get update && sudo apt-get install -y pandoc
+
+      - name: Convert Org -> Markdown
+        run: scripts/convert.sh
+
+      - name: Build site (Hugo)
+        run: hugo --minify
 
       - name: Compute image reference
         id: vars

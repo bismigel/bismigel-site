@@ -1,0 +1,20 @@
+# -- Site Configuration --
+defaultContentLanguage: "en"
+baseURL: "https://bismigel.dev/"
+title: "bismigel"
+enableRobotsTXT: true
+enableGitInfo: true
+paginate: 15
+summaryLength: 0
+enableEmoji: true
+theme: "hugo-omegion"
+
+outputs:
+  home: ["HTML", "RSS", "searchindex"]
+
+outputFormats:
+  searchindex:
+    mediaType: "application/json"
+    baseName: "index"
+    isPlainText: true
+    notAlternative: true

@@ -1,7 +1,9 @@
-# Generated site (CI exports org/ -> public/, then builds the image)
+# Generated site
 /public/
+/resources/
+
+# Generated Hugo content (pandoc org/ -> content/)
+/content/
+
 .DS_Store
 *.log
-
-# org-publish sitemap source (generated)
-/org/index.org

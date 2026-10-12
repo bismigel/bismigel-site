@@ -1,0 +1,3 @@
+[submodule "themes/hugo-omegion"]
+	path = themes/hugo-omegion
+	url = https://github.com/omegion/hugo-omegion.git

@@ -1,0 +1,23 @@
+locale: "en-us"
+title: "bismigel"
+copyright: "bismigel"
+params:
+  author:
+    name: "bismigel"
+    bio:
+      - "Aspiring brackish-water prawn farmer."
+      - "Day job in private repos; this is where my personal experiments live."
+    links:
+      - name: "GitHub"
+        url: "https://github.com/bismigel"
+        icon: "github"
+  description: "Homelab notes, experiments, and tinkering from Toronto."
+  dateFormat: "2 January 2006"
+  enableSearch: true
+  enableTableOfContents: true
+  homepage:
+    writingCount: 6
+    workCount: 4
+  search:
+    recentPostsCount: 3
+    recentProjectsCount: 3

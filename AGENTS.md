@@ -1,37 +1,38 @@
 # AGENTS.md — instructions for AI/LLM agents
 
-This repo is **miguelarbis.dev**: a static site produced by **Emacs `org-publish`**
-(no Hugo). Content is Org; CI exports it and deploys via GHCR → ArgoCD.
+`bismigel.dev`: write in **Org**, convert with **pandoc**, build with **Hugo**
+(Omegion theme), deploy via GHCR → ArgoCD.
 
-## The pipeline
+## Pipeline
 
 ```
-org/*.org ──emacs --batch -l build.el──▶ public/ ──docker──▶ GHCR ─▶ ArgoCD ─▶ miguelarbis.dev
+org/*.org ──scripts/convert.sh (pandoc -s -f org -t markdown)──▶ content/posts/<slug>/index.md
+                                                                    └─ hugo --minify ──▶ public/ ──▶ nginx image ──▶ GHCR ──▶ ArgoCD
 ```
 
 ## Rules
 
-1. **Content lives in `org/*.org`.** Add posts there, not in `public/`
-   (`public/` is generated and git-ignored). Keep work-in-progress in
-   `org/drafts/` — it is committed but **never published** (excluded in `build.el`).
-2. **One Org file = one page.** Use `#+TITLE:` and `#+DATE:`; the home page is the
-   auto-generated `index` (list of posts, newest first).
-3. **Header/footer live in `preamble.html` + `postamble.html`** (edited directly,
-   not in elisp). `build.el` reads them via `read-partial`.
-4. **Styling** is `static/style.css` (PaperMod-inspired). Keep it minimal.
-5. **Don't hand-edit the image tag** in `deploy/k8s/deployment.yaml` — CI owns it.
-6. Builds run with `emacs -Q --batch -l build.el` (no user init) for reproducibility.
+1. **Content lives in `org/*.org`.** This is the source of truth. `content/` and
+   `public/` are **generated** (git-ignored) — never edit them.
+2. **One Org file = one page**, named `org/<slug>.org`; use `#+TITLE:` and
+   `#+DATE:`. The URL becomes `/posts/<slug>/`.
+3. **Convert + build + deploy with `make`** (default target does all three). The
+   Makefile uses `scripts/convert.sh` (pandoc) then `hugo`.
+4. **Theme:** `themes/hugo-omegion` (submodule, pinned). Config in
+   `config/_default/` (Omegion requires `enableGitInfo`, `searchindex` output,
+   `markup.toml`, `taxonomies.toml` — see the theme's exampleSite).
+5. **Never hand-edit the image tag** in `deploy/k8s/deployment.yaml` — CI owns it.
+6. Builds need Hugo **extended** and **pandoc** (CI installs both).
 
-## Verify before pushing
+## Validate before pushing
 
 ```bash
-emacs --batch -l build.el          # must succeed
-find public -type f                # index.html + posts + style.css
+make build            # convert + hugo build must succeed
 ```
 
-## Add a page that isn't a post
+## Notes
 
-Currently unsupported: the publish project's sitemap lists every `org/*.org` file,
-and Org's `:exclude` would stop it being published at all. To add a non-listed
-page (e.g. About), add a second `org-publish-project-alist` entry without
-`:auto-sitemap`.
+- Pandoc maps `#+TITLE`/`#+DATE` to Hugo YAML front matter automatically.
+- `#+DESCRIPTION` → `description`; add `tags` via a `#+FILETAGS:` or by editing the
+  generated front matter step in `scripts/convert.sh` if needed.
+- `enableGitInfo: true` means CI checks out with `fetch-depth: 0`.
