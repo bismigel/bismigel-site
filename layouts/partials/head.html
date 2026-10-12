@@ -140,5 +140,6 @@
     gtag("config", "{{ . }}");
   </script>
   {{- end }}
-  <link rel="stylesheet" href="{{ "css/custom.css" | relURL }}" />
+  {{- $custom := resources.Get "css/custom.css" | resources.Minify | resources.Fingerprint "sha256" }}
+  <link rel="stylesheet" href="{{ $custom.RelPermalink }}" integrity="{{ $custom.Data.Integrity }}" />
 </head>
