@@ -16,7 +16,7 @@
   (concat "<header class=\"site-header\"><div class=\"wrap\">"
           "<a class=\"site-title\" href=\"/\">Miguel Arbis</a>"
           "<nav class=\"nav\"><a href=\"/\">Posts</a>"
-          "<a href=\"https://github.com/prawnfarmerdev\">GitHub</a>"
+          "<a href=\"https://github.com/bismigel\">GitHub</a>"
           "</nav></div></header>"))
 
 (defconst site-footer
