@@ -11,8 +11,19 @@
   }
 }
 
-/* Disable the logo colour-flicker animation (intro on load + on hover). */
+/* Fully static: disable the logo colour-flicker (intro on load + on hover). */
 .logo-letters.intro span,
 .logo-letters:hover span {
   animation: none;
+}
+
+/* Fully static: disable the cross-document page fade/slide (view transitions). */
+@view-transition {
+  navigation: none;
+}
+
+::view-transition-group(*),
+::view-transition-old(*),
+::view-transition-new(*) {
+  animation: none !important;
 }
