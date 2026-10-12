@@ -1,0 +1,60 @@
+#+TITLE: How this site is built
+#+DATE: 2026-10-12
+#+FILETAGS: hugo:emacs:ci
+
+I write in Org, convert with pandoc, and build with Hugo. Here is the whole
+pipeline in one screen.
+
+* Writing
+
+Every post is a file in =org/=. This one starts like:
+
+#+begin_src org
+#+TITLE: How this site is built
+#+DATE: 2026-10-12
+#+FILETAGS: hugo:emacs:ci
+
+Body text in Org.
+#+end_src
+
+Org gives me headings, tables, source blocks, footnotes, and export keywords.
+I never hand-write HTML.
+
+* Converting
+
+A small script turns each Org file into Hugo Markdown with front matter:
+
+#+begin_src shell
+pandoc -s -f org -t markdown --wrap=none org/post.org \
+  -o content/posts/post/index.md
+#+end_src
+
+Pandoc maps =#+TITLE= and =#+DATE= to YAML front matter. One extra step maps
+=#+FILETAGS= to Hugo tags.
+
+* Building and shipping
+
+#+begin_src shell
+hugo --minify    # Org -> HTML into public/
+#+end_src
+
+CI runs the same steps on every push:
+
+1. convert Org to Markdown
+2. run =hugo --minify=
+3. build a small nginx image that contains =public/=
+4. push the image to GHCR and bump its tag
+
+ArgoCD watches the manifest and rolls out the new image. I never deploy by hand.
+
+* Four jobs, four tools
+
+| Job        | Tool            |
+|------------+-----------------|
+| writing    | Org and Emacs   |
+| conversion | pandoc          |
+| build      | Hugo            |
+| deploy     | GHCR and ArgoCD |
+
+Each tool does one thing, which means I can replace any of them without touching
+the rest.
