@@ -1,11 +1,12 @@
-# Permanently redirect the old domain to the new one.
+# Permanently redirect the old domain to the new one (path-preserving).
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: miguelarbis-redirect
   namespace: apps
   annotations:
-    nginx.ingress.kubernetes.io/permanent-redirect: https://bismigel.dev$request_uri
+    nginx.ingress.kubernetes.io/server-snippet: |
+      return 301 https://bismigel.dev$request_uri;
 spec:
   ingressClassName: nginx
   rules:
