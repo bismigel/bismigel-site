@@ -48,11 +48,12 @@
          :publishing-function org-html-publish-to-html
          :section-numbers nil
          :with-toc nil
+         :with-title nil
          :html-head "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><link rel=\"stylesheet\" href=\"/style.css\">"
          :html-preamble ,site-header
          :html-postamble ,site-footer
          :auto-sitemap t
-         :sitemap-title ""
+         :sitemap-title "bismigel"
          :sitemap-filename "index.org"
          :sitemap-sort-files anti-chronologically
          :sitemap-function my-sitemap
