@@ -1,6 +1,12 @@
 /* bismigel.dev overrides (loaded after the theme CSS) */
 
-:root,
+/* Plain black background in DARK mode only; light mode stays white. */
 :root[data-theme="dark"] {
   --bg: #000000;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #000000;
+  }
 }
