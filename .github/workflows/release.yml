@@ -16,6 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
       packages: write
     steps:
       - name: Checkout
@@ -64,6 +65,8 @@ jobs:
 
       - name: Bump image tag in manifests
         if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           IMAGE="${{ steps.vars.outputs.image }}"
           TAG="${{ steps.vars.outputs.tag }}"
@@ -72,5 +75,13 @@ jobs:
           git config user.email "action@github.com"
           git config user.name "GitHub Action"
           git add "$FILE"
-          git diff --cached --quiet || git commit -m "chore: deploy ${TAG}"
-          git push
+          git diff --cached --quiet && exit 0
+          # main is protected (PRs required), so push a branch and merge via a PR.
+          BR="deploy/tag-${TAG}"
+          git checkout -b "$BR"
+          git commit -m "chore: deploy ${TAG}"
+          git push -u origin "$BR"
+          gh pr create --base main --head "$BR" \
+            --title "chore: deploy ${TAG}" \
+            --body "Automated image-tag bump."
+          gh pr merge "$BR" --squash --delete-branch
