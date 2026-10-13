@@ -2,6 +2,11 @@
 #+DATE: 2026-10-11
 #+FILETAGS: homelab:design:gitops
 
+#+begin_quote
+*Building the lab* — part 3 of 8. ← [[file:2026-10-02-how-this-site-is-built.org][How this site is built]] ·
+[[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext →]]
+#+end_quote
+
 I already wrote a tour of the homelab. This one is more honest: it's the
 decisions behind it, including the ones I made, unmade, and made again after
 actually living with them for a while and finding out I was wrong.

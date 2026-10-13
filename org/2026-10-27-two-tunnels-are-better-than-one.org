@@ -2,6 +2,11 @@
 #+DATE: 2026-10-27
 #+FILETAGS: homelab:kubernetes:cloudflare
 
+#+begin_quote
+*Building the lab* — part 8 of 8. ← [[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod (and the subtitle trap)]] ·
+you're at the end.
+#+end_quote
+
 I only started worrying about the front door after something else broke and I
 realised how much depended on one box. One Cloudflare tunnel connector and one
 ingress controller, both on the same machine. If either died, *everything* public
@@ -58,6 +63,26 @@ ingress:
     service: http://127.0.0.1:32080
   ...
   - service: http_status:404
+#+end_src
+
+Which, drawn out, is this — and I'm including the gap, because the gap is the
+honest part:
+
+#+begin_src mermaid
+flowchart LR
+  user([Internet]) --> cf[Cloudflare edge]
+  cf --> c82[cloudflared<br/>.82]
+  cf --> c81[cloudflared<br/>.81]
+
+  subgraph b82[".82 - hosting box"]
+    c82 --> i82[ingress-nginx<br/>:32080]
+    i82 --> apps[sites - APIs - agent]
+  end
+
+  subgraph b81[".81 - media box"]
+    c81 --> i81[ingress-nginx<br/>:32080]
+    i81 -.->|no app backends yet| gap["apps still live on .82"]
+  end
 #+end_src
 
 * Doing it (the parts that matter)

@@ -2,6 +2,11 @@
 #+DATE: 2026-10-20
 #+FILETAGS: ai:homelab:agents
 
+#+begin_quote
+*Building the lab* — part 6 of 8. ← [[file:2026-10-16-deepseek-writes-the-boring-parts.org][DeepSeek writes the boring parts]] ·
+[[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod (and the subtitle trap) →]]
+#+end_quote
+
 Once the lab was reproducible, the idea I couldn't stop poking at was: stop being
 the only thing that can operate it. Put an agent inside the cluster, give it the
 tools I'd use, and let it do the small work. I genuinely wasn't sure this was a
