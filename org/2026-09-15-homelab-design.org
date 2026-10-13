@@ -2,67 +2,84 @@
 #+DATE: 2026-09-15
 #+FILETAGS: homelab:design:nixos
 
-I finally have the homelab shaped the way I want, so this first post is a tour of
-how it's put together and *why* the pieces are where they are.
+I've been putting this homelab together for a while now, and I'm still not sure
+I've got it right. But it's finally at a point where I can walk through what's
+there and try to explain why I made the choices I did — partly for whoever reads
+this, and partly to work out for myself whether they were good ones.
 
 * Two machines, two jobs
 
-There are two physical boxes:
+Right now there are two physical boxes:
 
-- The *hosting box*: an AMD Ryzen 5 4600G (6c/12t). Leftover parts from my old
-  PC after I dropped in a 4600G (better perf-per-watt, bless AM4). It serves the
-  websites, runs the cluster's platform pieces, and hosts whatever I want to
-  experiment with.
+- An *AMD Ryzen 5 4600G* (6c/12t). These were the leftover parts from my old PC
+  after I swapped in a 4600G — I'd read it was better perf-per-watt on AM4, and
+  I had the socket anyway. It ended up being the one that serves the websites
+  and runs most of the platform pieces, and where I poke at things I want to
+  learn.
 
-- The *media box*: an Intel i5-7500T, bought for $100 off Marketplace. This
-  generation has QuickSync, so it does hardware transcoding. It runs my whole
-  media stack.
+- An *Intel i5-7500T* I picked up for about $100 off Marketplace. I bought it
+  specifically because that generation has QuickSync, which I'd read does
+  hardware video transcoding. I'm still learning how much that actually matters
+  in practice.
 
-The split is deliberate, not accidental. The 4600G has more cores, which suits
-general apps and experimentation; the 7500T's QuickSync is wasted on anything
-that is not media. So the entire media stack lives on the Intel box and
-everything else lives on the AMD box.
+The split wasn't something I planned carefully up front — it's more that the
+7500T felt like it would be wasted on general apps, so the media stuff
+gravitated to it and everything else stayed on the AMD box. I *think* that's the
+right call, but I keep wondering if it's just me rationalising the hardware I
+happened to buy.
 
 * Everything is NixOS
 
-Initially this was deployed in proxmox lxc but i didnt like the additional layer that I have to work with before getting to the container.
-Using baremetal will remove that layer. I chose nixos specifically for the ease of configuration and avoiding drift from spec.
+This started out running in Proxmox LXCs, but I never got comfortable with the
+extra layer sitting between me and the thing I was actually trying to change.
+Going bare-metal removed that layer and I've been happier since.
 
-Both run NixOS, declared in a single flake. The OS is code: hosts, modules, disko
-disk layouts, and a =deploy-rs= hook so I can push a rebuild over SSH:
+I picked NixOS mostly because I kept drifting: I'd set something up by hand,
+forget what I'd done, and not be able to reproduce it. NixOS describes the whole
+machine in one flake, so there's a spec to go back to. I'm still very much
+learning it — the language trips me up constantly — but the idea that the OS is
+just code I can re-run is the thing that's kept me on it.
 
 #+begin_src shell
 nix run github:serokell/deploy-rs -- .#<host>
 #+end_src
 
-There is no half-configured box drifting over time. If I need to rebuild a
-machine, I reinstall from the same flake and I am back to a known state.
+I don't fully trust my memory with these systems, so being able to rebuild a
+machine from the same flake and get back to a known state is the point for me.
 
 * Kubernetes, but boring
 
-This would have worked with just docker instead of a single node k3s but I specifically chose this in order
-to experiment and troubleshoot and experience managing a kubernetes architecture. This would also mean I can
-use existing gitops tools like Flux and ArgoCd instead of having something like an ansible job that deploys to servers.
+A single Docker host would honestly have been simpler, and I want to be honest
+that part of why I chose Kubernetes was just to learn it. I wanted to actually
+feel the pain of managing a cluster, and to get to use the GitOps tools people
+keep mentioning (Flux, ArgoCD) instead of writing an Ansible job and hoping.
 
-Each box runs a single-node ~k3s~. I disabled Traefik and the built-in service
-load balancer on purpose and use *ingress-nginx* instead, so ingress is explicit
-rather than magic. It only runs where it earns its keep: the hosting box behind
-the tunnel. The media box needs no ingress — it is reached by its own NodePorts
-on the LAN.
+So each box runs a single-node ~k3s~. I turned off Traefik and the built-in
+load balancer because I couldn't figure out what they were doing, and replaced
+them with *ingress-nginx* so I could actually see the routing. That's probably
+the less "correct" choice and I'm okay with that for now — I learn better when
+nothing is hidden from me.
+
+I only run ingress where I could work out a reason for it: the box behind the
+tunnel. The media box still just gets reached by its own NodePorts on the LAN,
+which I realise is not very elegant.
 
 * GitOps with ArgoCD
 
-Cluster state lives in git and *ArgoCD* reconciles it. One repo
-(~bakuran-gitops~) is the source of truth.
+The whole cluster state lives in git and *ArgoCD* tries to keep reality matching
+it. One repo (~bakuran-gitops~) is the source of truth, which is the closest
+I've come to actually understanding my own setup.
 
-The part I am happiest with: there is a *single ArgoCD control plane*, and it
-lives on the hosting box. It manages *both* clusters — the hosting box
-in-cluster, and the media box registered as an *external cluster*. I do not run a
-second ArgoCD on the media box, and I do not copy repo credentials between them.
+The part I'm most pleased with, and least sure about: I run a *single ArgoCD*,
+on the hosting box, and I got it to manage *both* clusters — the hosting one
+in-cluster, and the media one registered as an external cluster. I kept reading
+that you'd run one per cluster, but two felt like double the thing to maintain,
+so I tried the one-plane approach. It works, but I honestly couldn't tell you all
+the failure modes yet.
 
-The repo is one app-of-apps root pointing at a folder of =Application=
-definitions, split per cluster, plus an =ApplicationSet= for anything that should
-run everywhere:
+The repo is one root app pointing at a folder of =Application= definitions,
+split per cluster, with an =ApplicationSet= for anything that should show up on
+every cluster:
 
 #+begin_example
 bakuran-gitops/
@@ -74,42 +91,49 @@ bakuran-gitops/
   manifests/<app>/...           # raw manifests the apps point at
 #+end_example
 
-The shared bits use an =ApplicationSet= with a *cluster generator*: it enumerates
-the clusters ArgoCD knows about, so registering a new cluster enrolls it
-automatically instead of duplicating manifests.
+The cluster generator is the bit I found genuinely clever: it asks ArgoCD which
+clusters it knows about, so adding a cluster means it gets the shared stuff
+without me copying manifests around. I still don't fully understand how it
+decides, but it does what I want.
 
-I still do not run deploys from CI:
+I haven't moved deploys into CI, and I'm not sure I want to yet:
 
 1. I push application code.
-2. CI builds a container image and pushes it to GHCR.
+2. CI builds an image and pushes it to GHCR.
 3. CI bumps the image tag in the manifests.
-4. ArgoCD notices and rolls it out — on whichever cluster the app targets.
+4. ArgoCD notices and rolls it out.
 
-CI never holds cluster credentials. It only pushes a tag. That is the whole
-trick, and it is why a compromised build cannot touch the cluster.
+The thing I do like about this: CI never holds cluster credentials. It only
+pushes a tag. I'm sure there are holes in my understanding of the security here,
+but it felt like the right shape.
 
 * Applications are reproducible
 
-Every app repo ships a =deploy/k8s/= folder (Deployment, Service, Ingress) and a
-GitHub Actions workflow that builds and pushes its image. To start something new
-I use ~homelab-app-template~, which wires all of that up. I just write the app.
+Every app repo has a =deploy/k8s/= folder (Deployment, Service, Ingress) and a
+workflow that builds its image. To start something new I use
+~homelab-app-template~, which I set up so I stop re-inventing the same wiring.
+It means I can spend my time on the app instead of the plumbing — which is still
+the part I find least interesting.
 
 * The edge is one Cloudflare tunnel
 
-Nothing is port-forwarded. A single ~cloudflared~ tunnel connects out to
-Cloudflare, and public hostnames (like this one) route to ~ingress-nginx~ on the
-hosting box. TLS terminates at Cloudflare.
+Nothing is port-forwarded. A single ~cloudflared~ tunnel dials out to Cloudflare,
+and public hostnames route to ~ingress-nginx~ on the hosting box. TLS terminates
+at Cloudflare. This is the piece I understand the least and trust the most,
+which probably isn't a great combination — I'll write more about the edge once
+I've broken it in anger.
 
 * Secrets
 
-Cluster secrets are *Sealed Secrets*: encrypted in git, decrypted by a controller
-in the cluster. Host level secrets, such as the tunnel credentials, are
-*SOPS*/age encrypted in the NixOS repo and decrypted at activation, keyed off each
-machine's SSH host key.
+At this point secrets were *Sealed Secrets*: encrypted in git, decrypted by a
+controller in the cluster. Host-level secrets like the tunnel credentials are
+*SOPS*/age encrypted in the NixOS repo, keyed off each machine's SSH host key. I
+picked these mostly by reading what other people did and copying them.
 
-(Since writing this I moved the cluster half to a managed secret store, and put
-the two clusters under one control plane. The reasoning is in
-[[file:2026-10-11-choosing-the-architecture.org][Choosing the architecture]].)
+(Since writing this I've moved the cluster half to a managed secret store, and
+put the two clusters under one control plane. I've written up the thinking in
+[[file:2026-10-11-choosing-the-architecture.org][Choosing the architecture]],
+mostly because I'm still not sure it's the final answer.)
 
 * What it looks like end to end
 
@@ -121,10 +145,10 @@ push -> CI (build + push image + bump tag) -> ArgoCD -> both clusters
 
 * Where it went next
 
-That was the design at the start. A few decisions changed after living with it:
-how the two clusters are managed, where secrets live, and how you log in. I wrote
-the reasoning up separately in
-[[file:2026-10-11-choosing-the-architecture.org][Choosing the architecture]].
+That was the design as I first got it working, and I've since changed a few
+things as I ran into walls. What I changed, and why, is in
+[[file:2026-10-11-choosing-the-architecture.org][Choosing the architecture]] —
+that post is a much more honest record of the learning than this one.
 
 #+begin_quote
 *Building the lab* — part 1. Next: [[file:2026-10-02-how-this-site-is-built.org][How this site is built]].

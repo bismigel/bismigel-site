@@ -2,12 +2,13 @@
 #+DATE: 2026-10-02
 #+FILETAGS: hugo:emacs:ci
 
-I write in Org, convert with pandoc, and build with Hugo. Here is the whole
-pipeline in one screen.
+I wanted a blog where I could just write, and I didn't want to run a database
+or fight a CMS. What I ended up with is a small pipeline I mostly understand,
+and I'm writing it down partly so I can remember how it fits together.
 
 * Writing
 
-Every post is a file in =org/=. This one starts like:
+Every post is a file in =org/=. This one starts like this:
 
 #+begin_src org
 #+TITLE: How this site is built
@@ -17,20 +18,22 @@ Every post is a file in =org/=. This one starts like:
 Body text in Org.
 #+end_src
 
-Org gives me headings, tables, source blocks, footnotes, and export keywords.
-I never hand-write HTML.
+I use Org because I already live in Emacs, and I like that I never have to
+think about HTML. I'm sure there are things I'm not using, but it gets out of
+the way, which is what I want from a writing format.
 
 * Converting
 
-A small script turns each Org file into Hugo Markdown with front matter:
+A small script turns each Org file into Hugo Markdown:
 
 #+begin_src shell
 pandoc -s -f org -t markdown --wrap=none org/post.org \
   -o content/posts/post/index.md
 #+end_src
 
-Pandoc maps =#+TITLE= and =#+DATE= to YAML front matter. One extra step maps
-=#+FILETAGS= to Hugo tags.
+Pandoc maps =#+TITLE= and =#+DATE= into YAML front matter. I had to add one
+extra step to get =#+FILETAGS= to become Hugo tags, and I'll be honest: I
+mostly copied that from someone else and only half understand it.
 
 * Building and shipping
 
@@ -38,14 +41,17 @@ Pandoc maps =#+TITLE= and =#+DATE= to YAML front matter. One extra step maps
 hugo --minify    # Org -> HTML into public/
 #+end_src
 
-CI runs the same steps on every push:
+CI runs the same thing on every push:
 
 1. convert Org to Markdown
 2. run =hugo --minify=
-3. build a small nginx image that contains =public/=
+3. build a small nginx image with =public/= in it
 4. push the image to GHCR and bump its tag
 
-ArgoCD watches the manifest and rolls out the new image. I never deploy by hand.
+Then ArgoCD notices and rolls it out, same as everything else in the lab. The
+part that still feels a little like magic to me is how the tag bump gets from CI
+back into git so ArgoCD can see it — I set it up and it works, but it's the
+piece I'd have to re-read before changing.
 
 * Four jobs, four tools
 
@@ -56,8 +62,9 @@ ArgoCD watches the manifest and rolls out the new image. I never deploy by hand.
 | build      | Hugo            |
 | deploy     | GHCR and ArgoCD |
 
-Each tool does one thing, which means I can replace any of them without touching
-the rest.
+I like that each tool does one thing, because it means when something breaks I
+have a good idea *where* it broke. That's been more useful to me while learning
+than any cleverness would have been.
 
 #+begin_quote
 *Building the lab* — part 2. Previous: [[file:2026-09-15-homelab-design.org][The design of the homelab]].
