@@ -1,0 +1,216 @@
+#+TITLE: Handing the GPU to a pod (and the subtitle trap)
+#+DATE: 2026-10-24
+#+FILETAGS: homelab:media:kubernetes:jellyfin
+
+Two things broke my media box in the same week, and they turned out to be the
+same lesson wearing different clothes. One was the GPU: the pod could see the
+graphics device but could not touch it. The other was subtitles: the file had
+them, the player refused them, and the whole stream died. In both cases the
+thing was *present* and the thing was not *usable*, and the gap between those
+two was a single setting living somewhere I was not looking.
+
+This is how I fixed both, mostly so I do not have to work it out twice.
+
+* Part one: give the pod the GPU
+
+The media box has an Intel i5 with a built-in GPU, and the whole reason it earns
+its place in the rack is QuickSync: it can transcode video in hardware, which
+means a Jellyfin stream costs a few percent of the GPU instead of a whole CPU.
+
+On the host everything looks ready. The kernel driver is loaded and the device
+nodes exist:
+
+#+begin_src shell
+$ ls -l /dev/dri
+crw-rw---- 1 root video 226,   0 card0
+crw-rw-rw- 1 root render 226, 128 renderD128
+#+end_src
+
+So the obvious move is the one every guide gives you: mount /dev/dri into the
+pod and call it a day.
+
+#+begin_src yaml
+volumeMounts:
+  - name: dri
+    mountPath: /dev/dri
+volumes:
+  - name: dri
+    hostPath:
+      path: /dev/dri
+      type: Directory
+#+end_src
+
+The device shows up inside the pod. And then the transcode runs on the CPU
+anyway, with ffmpeg pinning a core and a half, and if you go looking in the logs
+the VAAPI driver just says it cannot find a display:
+
+#+begin_src shell
+No VA display found for device /dev/dri/renderD128
+#+end_src
+
+That message is a lie by omission. The device is there. The drivers are there.
+The real problem is that *seeing a device is not the same as being allowed to
+open it*, and the thing doing the allowing is the device cgroup, not the file
+permissions. A hostPath mount puts the node inside the container's filesystem; it
+does nothing to the container's device access list. So the open comes back
+EPERM, the driver reports "no display", and you go hunting in the wrong place.
+
+I proved it to myself the cheap way, by just opening the node:
+
+#+begin_src shell
+# on the host
+$ ( exec 3<>/dev/dri/renderD128 && echo OK )
+OK
+
+# inside the pod
+$ ( exec 3<>/dev/dri/renderD128 && echo OK )
+sh: cannot create /dev/dri/renderD128: Operation not permitted
+#+end_src
+
+Open on the host, denied in the pod. That single line is the whole diagnosis.
+
+** The fix
+
+There are two ways to hand the device to the container. The blunt one is to run
+the pod privileged:
+
+#+begin_src yaml
+containers:
+  - name: jellyfin
+    securityContext:
+      privileged: true
+#+end_src
+
+That grants the container every host device, which is more than the GPU and more
+than I would like, but on a single-purpose media box it is the one-line answer
+and it works immediately. The tidy alternative is the Intel GPU device plugin,
+which registers the device as a schedulable resource so you ask for it
+explicitly and get exactly it:
+
+#+begin_src yaml
+resources:
+  limits:
+    gpu.intel.com/i915: 1
+#+end_src
+
+I went privileged first to get off the ground; the device plugin is the version
+I would keep.
+
+That is only half of it, because the container was never the only gate. Jellyfin
+also has to be *told* to use the hardware, and by default it does not. The
+encoding settings need a hardware acceleration type:
+
+#+begin_src json
+{ "HardwareAccelerationType": "qsv",
+  "VaapiDevice": "/dev/dri/renderD128",
+  "EnableHardwareEncoding": true }
+#+end_src
+
+Then you confirm the whole chain actually works, rather than trusting a checkbox.
+The bundled ffmpeg has the QSV encoders, and the driver opens cleanly:
+
+#+begin_src shell
+$ ffmpeg -init_hw_device qsv=hw:/dev/dri/renderD128 ... -c:v h264_qsv -f null -
+libva info: va_openDriver() returns 0
+#+end_src
+
+=returns 0= is the sentence I wanted to read. After that a transcode shows up
+with the right arguments and the CPU stops being the bottleneck:
+
+#+begin_src shell
+-init_hw_device vaapi=va:...,driver=iHD
+-init_hw_device qsv=qs@va
+-codec:v:0 h264_qsv
+#+end_src
+
+One more detail that cost me a confused half hour: the VAAPI drivers in the
+official Jellyfin image do not live in the system path. If you test by hand you
+have to point at them yourself, or you get the same misleading "no display"
+error and conclude the fix did not work.
+
+#+begin_src shell
+LIBVA_DRIVERS_PATH=/usr/lib/jellyfin-ffmpeg/lib/dri \
+LIBVA_DRIVER_NAME=iHD ffmpeg ...
+#+end_src
+
+Jellyfin does that for you when it spawns its own ffmpeg. You only need to
+remember it when you are the one doing the spawn.
+
+* Part two: the subtitle trap
+
+With transcoding finally cheap, I played an episode and hit the next wall. The
+moment I turned subtitles on, the player said they were not supported and
+dropped the stream.
+
+The file had subtitles. It had four of them, all English. The trouble is what
+kind they were:
+
+#+begin_src shell
+$ ffprobe -select_streams s -show_entries stream=codec_name ...
+codec_name=hdmv_pgs_subtitle
+codec_name=hdmv_pgs_subtitle
+#+end_src
+
+PGS is an *image* format: each subtitle is a bitmap, not text. A browser cannot
+draw it as a soft subtitle, so the only way to show it is to burn it into the
+video, frame by frame, on the CPU. That is a software overlay on top of every
+frame, and it is exactly the cost I had just spent an afternoon removing. Worse,
+a web player that knows it cannot render the stream sometimes does not fall back
+to burning it in at all; it just refuses.
+
+The honest fix is not to fight the image format but to add the text one. An
+external SRT is a soft subtitle, the browser draws it natively, and playback
+stays a remux. That is a job for Bazarr, which was already running and, it
+turned out, had never downloaded anything, because it had never been configured.
+
+** The pitfalls, in the order I hit them
+
+Configuring Bazarr looked like a form to fill in. It was a small obstacle course.
+
+1. *It could not reach Sonarr.* The error was =Bad Request - Invalid Hostname=,
+   which is not an error about connecting, it is an error about the =Host=
+   header. The *arr apps only answer to hostnames on their allow-list, and the
+   service name Bazarr was using was not on it. Adding the short name fixed it.
+   Obvious in hindsight; not obvious when the message says nothing about the *arr
+   config.
+
+2. *Its settings API silently ignores you.* Posting a neat JSON blob returned a
+   success code and changed nothing at all. The endpoint does not take a blob; it
+   takes individual form fields, dash-joined, prefixed with =settings-=, one per
+   setting. A 204 is not proof that anything happened.
+
+3. *A default profile breaks the database.* Setting a default language profile
+   made every new series fail to insert with =FOREIGN KEY constraint failed=: the
+   profile id could not be resolved at insert time. The workaround is to leave
+   the default unset and assign the profile directly instead. It is a bug in this
+   Bazarr build, but the workaround is small enough to live with.
+
+4. *It thought there was nothing to do.* This is the one I would put on a poster.
+   With the connection working and the provider authenticated, the search found
+   nothing, because Bazarr counts the *embedded* subtitles as satisfying the
+   language. The file already had English subtitles, after all; they were just
+   the PGS ones the browser cannot use. So the fix was to tell it to ignore the
+   embedded and image-based tracks (=use_embedded_subs=false=,
+   =ignore_pgs_subs=true=) so it would treat English as genuinely missing. Then
+   it went and fetched SRTs, and they landed next to the files.
+
+The lesson repeats the one from the GPU. "The file has subtitles" and "the player
+can use the subtitles" are different statements, and the software will happily
+report success on the first while failing the second.
+
+** What it bought
+
+An SRT next to the file turns the whole chain into the cheap path. The stream is
+no longer transcoded to burn in bitmaps; it is remuxed, the soft subtitle rides
+alongside, and the CPU goes back to sleep. The same episode that wanted three
+cores and a software overlay now barely registers.
+
+So both halves ended the same way: a device that was present but not permitted,
+and a subtitle that was present but not renderable, each fixed by finding the
+one gate that actually mattered. The GPU is now schedulable, the subtitles are
+text, and the box is quiet again.
+
+#+begin_quote
+*Building the lab* — part 7. Previous: [[file:2026-10-20-an-agent-for-the-lab.org][An agent for the lab, on a leash]].
+Next: [[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one]].
+#+end_quote

@@ -109,7 +109,7 @@ machine's SSH host key.
 
 (Since writing this I moved the cluster half to a managed secret store, and put
 the two clusters under one control plane. The reasoning is in
-[[file:2026-10-12-choosing-the-architecture.org][Choosing the architecture]].)
+[[file:2026-10-11-choosing-the-architecture.org][Choosing the architecture]].)
 
 * What it looks like end to end
 
@@ -124,4 +124,8 @@ push -> CI (build + push image + bump tag) -> ArgoCD -> both clusters
 That was the design at the start. A few decisions changed after living with it:
 how the two clusters are managed, where secrets live, and how you log in. I wrote
 the reasoning up separately in
-[[file:2026-10-12-choosing-the-architecture.org][Choosing the architecture]].
+[[file:2026-10-11-choosing-the-architecture.org][Choosing the architecture]].
+
+#+begin_quote
+*Building the lab* — part 1. Next: [[file:2026-10-02-how-this-site-is-built.org][How this site is built]].
+#+end_quote
