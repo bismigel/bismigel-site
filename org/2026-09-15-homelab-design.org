@@ -2,6 +2,11 @@
 #+DATE: 2026-09-15
 #+FILETAGS: homelab:design:nixos
 
+#+begin_quote
+*Building the lab* — part 1 of 8. You're at the start. Next:
+[[file:2026-10-02-how-this-site-is-built.org][How this site is built →]]
+#+end_quote
+
 I've been putting this homelab together for a while now, and I'm still not sure
 I've got it right. But it's finally at a point where I can walk through what's
 there and try to explain why I made the choices I did — partly for whoever reads
@@ -142,6 +147,35 @@ push -> CI (build + push image + bump tag) -> ArgoCD -> both clusters
                                                       -> ingress-nginx
                                                       -> cloudflared -> internet
 #+end_example
+
+The shape of it, as a picture (I find this easier to hold in my head than the
+directory tree):
+
+#+begin_src mermaid
+flowchart TB
+  user([Internet]) --> cf[Cloudflare edge<br/>TLS + Access]
+  cf --> tunnel[cloudflared tunnel]
+
+  subgraph hosting["hosting box - AMD Ryzen (.82)"]
+    direction TB
+    tunnel --> ingress[ingress-nginx]
+    argo[[ArgoCD<br/>one control plane]]
+    ingress --> sites[sites + APIs + dashboard + agent]
+    argo -. manages .-> sites
+    argo -. manages .-> media
+  end
+
+  subgraph mediabox["media box - Intel i5 + QuickSync (.81)"]
+    direction TB
+    media[Sonarr - Radarr - Prowlarr<br/>Jellyfin]
+    disk[(/mnt/media<br/>mergerfs)]
+    media --- disk
+  end
+#+end_src
+
+The thing I keep coming back to is that one ArgoCD (on the hosting box) reaches
+across to manage the media box. It's the decision I'm least sure about and the
+one that makes the whole thing fit in my head.
 
 * Where it went next
 

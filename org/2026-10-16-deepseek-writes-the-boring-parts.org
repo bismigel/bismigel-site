@@ -2,6 +2,11 @@
 #+DATE: 2026-10-16
 #+FILETAGS: ai:coding:homelab
 
+#+begin_quote
+*Building the lab* — part 5 of 8. ← [[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext]] ·
+[[file:2026-10-20-an-agent-for-the-lab.org][An agent for the lab, on a leash →]]
+#+end_quote
+
 I resisted using a model to write code for longer than I should have. It felt
 like something I was supposed to have an opinion about being against. But a lot
 of what holds this lab together is genuinely dull — NixOS modules, Kubernetes

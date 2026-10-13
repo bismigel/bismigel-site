@@ -2,6 +2,11 @@
 #+DATE: 2026-10-02
 #+FILETAGS: hugo:emacs:ci
 
+#+begin_quote
+*Building the lab* — part 2 of 8. ← [[file:2026-09-15-homelab-design.org][The design of the homelab]] ·
+[[file:2026-10-11-choosing-the-architecture.org][Choosing the architecture →]]
+#+end_quote
+
 I wanted a blog where I could just write, and I didn't want to run a database
 or fight a CMS. What I ended up with is a small pipeline I mostly understand,
 and I'm writing it down partly so I can remember how it fits together.

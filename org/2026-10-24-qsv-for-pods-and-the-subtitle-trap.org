@@ -2,6 +2,11 @@
 #+DATE: 2026-10-24
 #+FILETAGS: homelab:media:kubernetes:jellyfin
 
+#+begin_quote
+*Building the lab* — part 7 of 8. ← [[file:2026-10-20-an-agent-for-the-lab.org][An agent for the lab, on a leash]] ·
+[[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one →]]
+#+end_quote
+
 Two things broke my media box in the same week and it took me a while to see they
 were the same lesson. One was the GPU: the pod could see the graphics device but
 couldn't touch it. The other was subtitles: the file had them, the player
