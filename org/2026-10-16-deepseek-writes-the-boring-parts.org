@@ -1,0 +1,84 @@
+#+TITLE: DeepSeek writes the boring parts
+#+DATE: 2026-10-16
+#+FILETAGS: ai:coding:homelab
+
+Almost none of what holds this lab together is interesting code. It is NixOS
+modules, Kubernetes manifests, a pile of shell glue, and the same small patterns
+in slightly different shapes, over and over. That is precisely the kind of work a
+model is good at, so I stopped being precious about it and let one do it. The
+interesting question is not *whether* to use it but *where the line is*.
+
+* What I hand it
+
+The rule I settled on is simple: if I can describe the shape of the answer in a
+sentence, I let the model write it. A new ExternalSecret that mirrors an existing
+one. A Deployment with the labels and probes the rest of the cluster expects. A
+shell script that does a thing I have already done three times. A systemd unit
+with the ordering I always forget. These are not problems; they are typing, and
+typing is a waste of an evening.
+
+The bigger the mechanical component and the smaller the judgement component, the
+better it does. Turning a schema into structs, renaming a field across twenty
+files, writing the tenth variation of a GitHub Actions step. It does those
+instantly and correctly, and I would have made a typo.
+
+* Where it earns its keep
+
+Two things stand out. The first is *cross-language translation*. I know the
+Kubernetes API well enough to read a manifest, but I do not remember the exact
+shape of every field, and I definitely do not remember the NixOS option names.
+Having a model that does is a real speedup, because the failure mode of a wrong
+option name is a build error five minutes later, not a subtle bug.
+
+The second is *the first draft of anything boring*. I will happily write the
+second draft of a script; I resent writing the first. So I ask for a first draft,
+read it, and then rewrite the parts that matter. The model gets me from a blank
+page to something I can argue with, which is most of the friction.
+
+* Where it does not
+
+It is confidently wrong about anything recent or niche, and the homelab is full
+of niche. It will invent a Helm value that does not exist, assume a default that
+changed two versions ago, or write a perfectly reasonable manifest that quietly
+does the wrong thing for this cluster because it does not know this cluster.
+
+So the line is: it drafts, I own. Nothing it writes goes to the cluster without
+me reading it, and anything that touches secrets, the network edge, or the shape
+of the data is mine to get right. The model is a fast, tireless, slightly
+overconfident junior. That is a useful colleague as long as you do not let it
+merge.
+
+* Keeping the keys out
+
+The one hard rule is that the model never sees a secret. It does not need the
+actual value of anything to write the code that *references* it, and the values
+live in a secret store the code only names, never contains. The prompts
+themselves are worth treating the same way: a pasted config, a log line, a token
+in an error message. Those do not go into a prompt. If a value has to exist for
+the model to help, it is a placeholder, not the real thing.
+
+* What I can actually open-source
+
+Part of the point of all this is that it is reproducible, so I periodically
+re-check which of the repos could be public. The honest answer is two buckets.
+
+The generic ones are safe as they are, because there is nothing personal in
+them at all: the app template, the small test APIs, and the site itself. Nothing
+about my network leaks from a template that only ever contains placeholders.
+
+The homelab repos are the interesting case. There are no secrets in them, in the
+sense of no keys, tokens, or passwords; everything sensitive lives in the secret
+store, and the manifests only reference names. But they do describe the lab,
+and the lab is not abstract. They name the boxes, the private addresses, the
+subdomains, the ports. Making them public would not hand anyone a credential;
+it would hand them a map. For a lot of homelabbers that trade is fine, and it is
+the whole reason the repos are worth reading. For me it is a decision I want to
+make deliberately rather than by accident, which is why the sensitive ones stay
+private for now and the boring ones do not.
+
+* The thing underneath
+
+The agent that tends this lab, which I will write about next, runs on the same
+kind of model, and it is the same lesson at a larger scale: the model is
+excellent at the mechanical and unreliable at the judgement, so the design is all
+about putting the judgement where it cannot reach it and letting it do the rest.

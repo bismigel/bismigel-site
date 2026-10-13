@@ -1,5 +1,5 @@
 #+TITLE: Choosing the architecture
-#+DATE: 2026-10-12
+#+DATE: 2026-10-11
 #+FILETAGS: homelab:design:gitops
 
 I already gave a tour of the homelab. This one is about the decisions behind it,
