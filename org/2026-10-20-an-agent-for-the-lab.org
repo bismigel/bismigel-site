@@ -7,115 +7,112 @@
 [[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod (and the subtitle trap) →]]
 #+end_quote
 
-Once the lab was reproducible, the idea I couldn't stop poking at was: stop being
-the only thing that can operate it. Put an agent inside the cluster, give it the
-tools I'd use, and let it do the small work. I genuinely wasn't sure this was a
-good idea when I started. Here's what it turned into, and what it taught me about
-where an autonomous thing belongs — which is mostly "not where I first put it".
+Once the lab was reproducible, there was one idea I kept coming back to: stop
+being the only one who can run it. Put an agent inside the cluster, give it the
+tools I use, and let it do the small work. I honestly wasn't sure this was a good
+idea when I started. Here's what it turned into, and what I learned about where an
+agent like this belongs. Mostly it belongs somewhere other than where I first put
+it.
 
 * What it is
 
-It's a single workload, deployed like everything else: one ArgoCD application,
-one container, one volume. You reach it two ways, both behind the same identity
-gate — a web dashboard behind Cloudflare Access, and a Telegram bot that only
-answers accounts I've explicitly added. Nobody else gets a reply, which took me
-a minute to get right.
+It's a single workload, deployed like everything else: one ArgoCD application, one
+container, one volume. You reach it two ways, both behind the same login check. A
+web dashboard behind Cloudflare Access, and a Telegram bot that only answers
+accounts I've added by hand. Nobody else gets a reply. That took me a minute to
+get right.
 
 What makes it useful isn't the chat, though. It's that the box it runs on isn't a
-sandbox. It has a shell, and in that shell are the tools I'd reach for: `kubectl`
-with real permissions, `gh` and `git`, `helm`, `jq`. It reads the same notes I
-wrote for myself. So when I ask it something, it isn't summarising a log I
-pasted — it's going and looking. That was the moment it stopped being a toy for
-me.
+sandbox. It has a shell, and in that shell are the tools I would use: `kubectl`
+with real permissions, `gh` and `git`, `helm`, `jq`. It can read the same notes I
+wrote for myself. So when I ask it something, it isn't summarizing a log I pasted.
+It goes and looks. That was the moment it stopped being a toy for me.
 
 * Tools, not just a prompt
 
-The part I underrated is the tools. A model with a shell can do anything I can,
-which is a capability and a problem at the same time, and I didn't appreciate
-how much of a problem until I started thinking about it. The cleaner way to give
-it room is MCP servers, which expose a typed set of operations instead of a
-sprawling shell.
+The part I underestimated is the tools. A model with a shell can do anything I
+can. That's both useful and a problem, and I didn't realize how much of a problem
+until I started thinking about it. The cleaner way to give it room is MCP servers,
+which give it a clear set of operations instead of a whole shell.
 
 Two of them turned out to matter. A Kubernetes server gives it real tools for
-pods, resources, events, logs, and Helm, and because it talks to the API
-directly it can be pointed at *both* clusters, so the agent sees the whole lab
-and not just the box it lives on. A GitHub server gives it the repo operations —
-including the one that matters here, opening a pull request.
+pods, resources, events, logs, and Helm. Because it talks to the API directly, it
+can be pointed at *both* clusters, so the agent sees the whole lab and not just
+the box it lives on. A GitHub server gives it the repo operations, including the
+one that matters here: opening a pull request.
 
-I prefer these over the shell not because they're more capable — a shell with
-`kubectl` can do more — but because a typed tool is something I can name, reason
-about, and gate. A shell is a bottomless allowlist, and I couldn't tell you what
-I'd allowed.
+I prefer these over the shell, not because they're more capable. A shell with
+`kubectl` can do more. I prefer them because a defined tool is something I can
+name, think about, and block. A shell is a list with no end, and I couldn't tell
+you everything I'd allowed.
 
 * The leash
 
-Full autonomy is the easy setting and I'm fairly sure it's the wrong one. I want
-two things from something with the run of the place: that it can't make a change
-I'd be embarrassed by, and that I can still tell it to go do something without
-watching over it.
+Full autonomy is the easy setting, and I'm pretty sure it's the wrong one. I want
+two things from something with the run of the place. It shouldn't be able to make
+a change I'd be embarrassed by. And I should still be able to tell it to go do
+something without watching over it.
 
-The compromise I landed on is a set of rules I give it, plus a small number of
-constraints it can't talk its way out of.
+The compromise I landed on is a set of rules I give it, plus a few limits it can't
+talk its way around.
 
 The first is that it proposes, it doesn't commit. It works on branches and opens
-pull requests, and the default branch is protected so that isn't a suggestion.
-The review isn't a formality — it's the point.
+pull requests, and the default branch is protected, so that isn't just a
+suggestion. The review isn't a formality. It's the whole point.
 
 The second is about the edge. Cloudflare is the one thing that can expose the
 house to the internet, so it's the one thing the agent isn't trusted with. It
-doesn't get the token. Instead there's a small proxy beside it that holds the
+doesn't get the token. Instead there's a small proxy next to it that holds the
 token and forwards *reads*, and answers every write with a flat no. The agent can
 look at the DNS, the tunnel, the zones. It can't change them, and it can't leak
-the token because it never has it. That asymmetry took me a while to design and
-is the part I'm least worried about now.
+the token because it never has it. That setup took me a while to build. It's the
+part I worry about least now.
 
 The third is the boring one that's actually the whole thing: secrets live in a
 store, get injected as environment variables, and never land in a file, a prompt,
 or a log. The agent gets the *name* of a credential and nothing more. I didn't
-understand how much this underwrites everything else until I broke it.
+understand how much this held everything else up until I broke it.
 
 * The model is not the interesting part, but it is a dividing line
 
-It runs on a hosted model, and for a while it fell back to a small local one when
-the call failed. That fallback was a mistake, and not a subtle one: the small
-model couldn't reliably use tools. It didn't just answer worse — it hallucinated
-that it had no tools at all and refused to act. I spent an evening staring at
-that. What I learned is that capability isn't a linear dial: below some point
-tool use just stops working, and the gap between "a little worse" and "cannot do
-the job" is the gap between a feature and an outage.
+It runs on a hosted model. For a while it fell back to a small local one when the
+call failed. That fallback was a mistake, and not a small one. The small model
+couldn't use tools reliably. It didn't just answer worse. It decided it had no
+tools at all and refused to do anything. I spent an evening staring at that. What
+I learned is that this isn't a simple dial you turn down. Below some point, tool
+use just stops working. There's a big difference between a model that's a little
+worse and one that can't do the job.
 
-The local model still has a place for plain conversation. But the agent only
-works when it's allowed to act, and for that it needs a model that can.
+The local model is still fine for plain conversation. But the agent only works
+when it's allowed to act, and for that it needs a model that can.
 
 * What went wrong
 
-The honest one. I'd seeded the secret store with placeholder values during setup,
-using a mechanism that pushes a value on a timer. Later I updated the real
-values. The leftover job kept pushing, and on its next tick it overwrote the real
+The honest one. During setup I loaded the secret store with placeholder values,
+using something that pushes a value on a timer. Later I put in the real values.
+The leftover job kept running, and on its next tick it overwrote the real
 credentials with the placeholders again. The agent then spent an evening being
-confidently useless, and I spent it assuming the tools were broken. The tools
-were fine. My own scaffolding had quietly reverted the credentials while I wasn't
-looking.
+confidently useless, and I spent it assuming the tools were broken. The tools were
+fine. My own setup had quietly put the old values back while I wasn't looking.
 
-The lesson isn't really about agents. It's that anything which writes to your
-source of truth on a schedule will eventually write to it at exactly the wrong
-moment. I still don't have a great guard against this beyond remembering it.
+The lesson isn't really about agents. It's that anything that writes to your
+source of truth on a timer will eventually do it at exactly the wrong moment. I
+still don't have a good way to stop it, other than remembering it.
 
 * What I think now
 
-The value is real but narrower than I imagined. The agent is good at the same
+The value is real but smaller than I imagined. The agent is good at the same
 things the model is good at when it writes code: the mechanical, the repetitive,
 the look-it-up. It's genuinely useful to have a box that can answer "what's
 actually running, and is it healthy" without me opening a terminal, and that can
-open the PR to fix the small thing it noticed. It is not, so far, useful for
-anything that needs judgement, and I've stopped hoping it will be.
+open the PR to fix the small thing it noticed. So far it isn't useful for anything
+that needs judgment, and I've stopped hoping it will be.
 
-The open question is trust, and it's narrower than it sounds. I'm not worried
-about the model being malicious. I'm worried about it being confidently wrong at
-the edge of what it can see — which is the same worry I have about myself. The
-answer is the same in both cases, and it's the thing I'd tell anyone starting
-this: put the parts that can't be undone behind a human, and let everything else
-move fast.
+The open question is trust, and it's smaller than it sounds. I'm not worried about
+the model being malicious. I'm worried about it being confidently wrong at the
+edge of what it can see, which is the same worry I have about myself. The answer
+is the same in both cases. It's what I'd tell anyone starting this: put the parts
+that can't be undone behind a human, and let everything else move fast.
 
 #+begin_quote
 *Building the lab* — part 6. Previous: [[file:2026-10-16-deepseek-writes-the-boring-parts.org][DeepSeek writes the boring parts]].
