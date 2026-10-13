@@ -88,3 +88,8 @@ The whole thing is a work in progress, which is the point. Each layer is
 replaceable: the OS, the cluster, the secrets, the edge. Swapping any one of
 them does not require touching the rest, and that is the property I was actually
 after.
+
+#+begin_quote
+*Building the lab* — part 3. Previous: [[file:2026-10-02-how-this-site-is-built.org][How this site is built]].
+Next: [[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext]].
+#+end_quote

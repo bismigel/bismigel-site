@@ -132,3 +132,7 @@ crash-looping connector, a bad ingress rollout, a process dying — now degrade 
 "one box serves instead of two" rather than "the whole edge is down". The tunnel
 shows two healthy connections, the sites answer, and the front door stops being
 the thing I worry about. That is worth ten lines of YAML and one `curl`.
+
+#+begin_quote
+*Building the lab* — part 8. Previous: [[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod (and the subtitle trap)]].
+#+end_quote

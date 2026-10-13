@@ -82,3 +82,8 @@ The agent that tends this lab, which I will write about next, runs on the same
 kind of model, and it is the same lesson at a larger scale: the model is
 excellent at the mechanical and unreliable at the judgement, so the design is all
 about putting the judgement where it cannot reach it and letting it do the rest.
+
+#+begin_quote
+*Building the lab* — part 5. Previous: [[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext]].
+Next: [[file:2026-10-20-an-agent-for-the-lab.org][An agent for the lab, on a leash]].
+#+end_quote

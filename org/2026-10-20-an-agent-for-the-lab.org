@@ -103,3 +103,8 @@ worried about the model being malicious. I am worried about it being confidently
 wrong at the edge of what it can see, which is the same worry I have about
 myself. The design answer is the same in both cases: put the parts that cannot be
 undone behind a human, and let everything else move fast.
+
+#+begin_quote
+*Building the lab* — part 6. Previous: [[file:2026-10-16-deepseek-writes-the-boring-parts.org][DeepSeek writes the boring parts]].
+Next: [[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod (and the subtitle trap)]].
+#+end_quote

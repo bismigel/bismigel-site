@@ -58,3 +58,8 @@ ArgoCD watches the manifest and rolls out the new image. I never deploy by hand.
 
 Each tool does one thing, which means I can replace any of them without touching
 the rest.
+
+#+begin_quote
+*Building the lab* — part 2. Previous: [[file:2026-09-15-homelab-design.org][The design of the homelab]].
+Next: [[file:2026-10-11-choosing-the-architecture.org][Choosing the architecture]].
+#+end_quote
