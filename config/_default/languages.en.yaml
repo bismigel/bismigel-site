@@ -5,8 +5,8 @@ params:
   author:
     name: "bismigel"
     bio:
-      - "Aspiring brackish-water prawn farmer."
-      - "Day job in private repos; this is where my personal experiments live."
+      - "I’m Miguel. Aspiring brackish-water prawn farmer. Observability Platform Engineer by trade."
+      - "Day job in private company repos. This is where my personal experiments and ramblings live."
     links:
       - name: "GitHub"
         url: "https://github.com/bismigel"
