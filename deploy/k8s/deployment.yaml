@@ -20,7 +20,7 @@ spec:
       containers:
         - name: miguelarbis-site
           # Tag bumped automatically by .github/workflows/release.yml
-          image: ghcr.io/bismigel/bismigel-site:main-20261013-162314-f607c35
+          image: ghcr.io/bismigel/bismigel-site:main-20261013-163017-759da9c
           imagePullPolicy: Always
           ports:
             - containerPort: 80
