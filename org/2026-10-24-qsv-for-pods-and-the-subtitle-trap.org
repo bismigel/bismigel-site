@@ -2,23 +2,24 @@
 #+DATE: 2026-10-24
 #+FILETAGS: homelab:media:kubernetes:jellyfin
 
-Two things broke my media box in the same week, and they turned out to be the
-same lesson wearing different clothes. One was the GPU: the pod could see the
-graphics device but could not touch it. The other was subtitles: the file had
-them, the player refused them, and the whole stream died. In both cases the
-thing was *present* and the thing was not *usable*, and the gap between those
-two was a single setting living somewhere I was not looking.
+Two things broke my media box in the same week and it took me a while to see they
+were the same lesson. One was the GPU: the pod could see the graphics device but
+couldn't touch it. The other was subtitles: the file had them, the player
+refused them, and the stream died. In both cases the thing was *present* and the
+thing was not *usable*, and the gap between those two was a single setting living
+somewhere I wasn't looking. I only worked that out afterwards.
 
-This is how I fixed both, mostly so I do not have to work it out twice.
+This is my notes on both, mainly so I don't have to work them out twice.
 
 * Part one: give the pod the GPU
 
-The media box has an Intel i5 with a built-in GPU, and the whole reason it earns
-its place in the rack is QuickSync: it can transcode video in hardware, which
-means a Jellyfin stream costs a few percent of the GPU instead of a whole CPU.
+The media box has an Intel i5 with a built-in GPU, and as far as I can tell the
+only real reason it earns its place is QuickSync: it can transcode video in
+hardware, so a Jellyfin stream should cost a few percent of the GPU instead of a
+whole CPU. I'm taking that on faith a bit — but it's why I bought this box.
 
-On the host everything looks ready. The kernel driver is loaded and the device
-nodes exist:
+On the host everything *looks* ready: the kernel driver is loaded and the device
+nodes exist.
 
 #+begin_src shell
 $ ls -l /dev/dri
@@ -27,7 +28,7 @@ crw-rw-rw- 1 root render 226, 128 renderD128
 #+end_src
 
 So the obvious move is the one every guide gives you: mount /dev/dri into the
-pod and call it a day.
+pod and call it done.
 
 #+begin_src yaml
 volumeMounts:
@@ -40,22 +41,24 @@ volumes:
       type: Directory
 #+end_src
 
-The device shows up inside the pod. And then the transcode runs on the CPU
-anyway, with ffmpeg pinning a core and a half, and if you go looking in the logs
-the VAAPI driver just says it cannot find a display:
+The device shows up inside the pod — and then the transcode runs on the CPU
+anyway, with ffmpeg pinning a core and a half, and the VAAPI driver in the logs
+just says it can't find a display:
 
 #+begin_src shell
 No VA display found for device /dev/dri/renderD128
 #+end_src
 
-That message is a lie by omission. The device is there. The drivers are there.
-The real problem is that *seeing a device is not the same as being allowed to
-open it*, and the thing doing the allowing is the device cgroup, not the file
-permissions. A hostPath mount puts the node inside the container's filesystem; it
-does nothing to the container's device access list. So the open comes back
-EPERM, the driver reports "no display", and you go hunting in the wrong place.
+For a while I assumed that message meant what it said and went looking at
+drivers. It doesn't. The device is there, the drivers are there. The real problem
+is that *seeing a device isn't the same as being allowed to open it*, and the
+thing doing the allowing is the device cgroup, not the file permissions. A
+hostPath mount puts the node inside the container's filesystem; it does nothing
+to the container's device access list. So the open comes back EPERM, the driver
+reports "no display", and you go hunting in the wrong place. That took me an
+embarrassingly long time to figure out.
 
-I proved it to myself the cheap way, by just opening the node:
+I proved it to myself the cheap way, just by opening the node:
 
 #+begin_src shell
 # on the host
@@ -67,7 +70,8 @@ $ ( exec 3<>/dev/dri/renderD128 && echo OK )
 sh: cannot create /dev/dri/renderD128: Operation not permitted
 #+end_src
 
-Open on the host, denied in the pod. That single line is the whole diagnosis.
+Open on the host, denied in the pod. That single line was the whole diagnosis
+for me.
 
 ** The fix
 
@@ -81,11 +85,10 @@ containers:
       privileged: true
 #+end_src
 
-That grants the container every host device, which is more than the GPU and more
-than I would like, but on a single-purpose media box it is the one-line answer
-and it works immediately. The tidy alternative is the Intel GPU device plugin,
-which registers the device as a schedulable resource so you ask for it
-explicitly and get exactly it:
+That grants every host device, which is more than the GPU and more than I'd
+like, but on a single-purpose media box it's the one-line answer and it worked
+immediately. The tidier alternative is the Intel GPU device plugin, which
+registers the device as a schedulable resource so you ask for exactly it:
 
 #+begin_src yaml
 resources:
@@ -93,12 +96,13 @@ resources:
     gpu.intel.com/i915: 1
 #+end_src
 
-I went privileged first to get off the ground; the device plugin is the version
-I would keep.
+I went privileged first to get off the ground and told myself I'd switch later.
+I haven't yet. I'm not sure that's the right trade and I want to be honest about
+it rather than write it up as a decision.
 
-That is only half of it, because the container was never the only gate. Jellyfin
-also has to be *told* to use the hardware, and by default it does not. The
-encoding settings need a hardware acceleration type:
+That was only half of it, because the container was never the only gate. Jellyfin
+also has to be *told* to use the hardware, and by default it isn't. The encoding
+settings need a hardware acceleration type:
 
 #+begin_src json
 { "HardwareAccelerationType": "qsv",
@@ -106,15 +110,15 @@ encoding settings need a hardware acceleration type:
   "EnableHardwareEncoding": true }
 #+end_src
 
-Then you confirm the whole chain actually works, rather than trusting a checkbox.
-The bundled ffmpeg has the QSV encoders, and the driver opens cleanly:
+Then you confirm the chain actually works instead of trusting a checkbox. The
+bundled ffmpeg has the QSV encoders, and the driver opens cleanly:
 
 #+begin_src shell
 $ ffmpeg -init_hw_device qsv=hw:/dev/dri/renderD128 ... -c:v h264_qsv -f null -
 libva info: va_openDriver() returns 0
 #+end_src
 
-=returns 0= is the sentence I wanted to read. After that a transcode shows up
+=returns 0= was the sentence I wanted to read. After that a transcode shows up
 with the right arguments and the CPU stops being the bottleneck:
 
 #+begin_src shell
@@ -123,10 +127,10 @@ with the right arguments and the CPU stops being the bottleneck:
 -codec:v:0 h264_qsv
 #+end_src
 
-One more detail that cost me a confused half hour: the VAAPI drivers in the
-official Jellyfin image do not live in the system path. If you test by hand you
+One more detail that cost me half a confused hour: the VAAPI drivers in the
+official Jellyfin image don't live in the system path. If you test by hand you
 have to point at them yourself, or you get the same misleading "no display"
-error and conclude the fix did not work.
+error and conclude the fix didn't work.
 
 #+begin_src shell
 LIBVA_DRIVERS_PATH=/usr/lib/jellyfin-ffmpeg/lib/dri \
@@ -134,16 +138,17 @@ LIBVA_DRIVER_NAME=iHD ffmpeg ...
 #+end_src
 
 Jellyfin does that for you when it spawns its own ffmpeg. You only need to
-remember it when you are the one doing the spawn.
+remember it when *you're* the one doing the spawn.
 
 * Part two: the subtitle trap
 
 With transcoding finally cheap, I played an episode and hit the next wall. The
-moment I turned subtitles on, the player said they were not supported and
-dropped the stream.
+moment I turned subtitles on, the player said they weren't supported and dropped
+the stream. I remember being genuinely confused, because I could *see* the
+subtitles were in the file.
 
-The file had subtitles. It had four of them, all English. The trouble is what
-kind they were:
+They were. There were four of them, all English. The trouble was what kind they
+were:
 
 #+begin_src shell
 $ ffprobe -select_streams s -show_entries stream=codec_name ...
@@ -151,64 +156,63 @@ codec_name=hdmv_pgs_subtitle
 codec_name=hdmv_pgs_subtitle
 #+end_src
 
-PGS is an *image* format: each subtitle is a bitmap, not text. A browser cannot
-draw it as a soft subtitle, so the only way to show it is to burn it into the
-video, frame by frame, on the CPU. That is a software overlay on top of every
-frame, and it is exactly the cost I had just spent an afternoon removing. Worse,
-a web player that knows it cannot render the stream sometimes does not fall back
-to burning it in at all; it just refuses.
+PGS is an *image* format: each subtitle is a bitmap, not text. A browser can't
+draw that as a soft subtitle, so the only way to show it is to burn it into the
+video, frame by frame, on the CPU — which is exactly the cost I'd just spent an
+afternoon removing. Worse, a web player that knows it can't render the stream
+sometimes doesn't fall back to burning it in at all. It just refuses.
 
-The honest fix is not to fight the image format but to add the text one. An
+The honest fix isn't to fight the image format but to add the text one. An
 external SRT is a soft subtitle, the browser draws it natively, and playback
-stays a remux. That is a job for Bazarr, which was already running and, it
-turned out, had never downloaded anything, because it had never been configured.
+stays a remux. That's a job for Bazarr, which was already running and, it turned
+out, had never downloaded anything, because I'd never configured it.
 
 ** The pitfalls, in the order I hit them
 
-Configuring Bazarr looked like a form to fill in. It was a small obstacle course.
+Configuring Bazarr looked like a form to fill in. It was a small obstacle course,
+and each failure taught me something I'd have had to learn eventually.
 
-1. *It could not reach Sonarr.* The error was =Bad Request - Invalid Hostname=,
-   which is not an error about connecting, it is an error about the =Host=
-   header. The *arr apps only answer to hostnames on their allow-list, and the
-   service name Bazarr was using was not on it. Adding the short name fixed it.
-   Obvious in hindsight; not obvious when the message says nothing about the *arr
-   config.
+1. *It couldn't reach Sonarr.* The error was =Bad Request - Invalid Hostname=,
+   which is not about connecting; it's about the =Host= header. The *arr apps
+   only answer to hostnames on their allow-list, and the service name Bazarr was
+   using wasn't on it. Obvious in hindsight, invisible when the message says
+   nothing about the *arr config.
 
 2. *Its settings API silently ignores you.* Posting a neat JSON blob returned a
-   success code and changed nothing at all. The endpoint does not take a blob; it
-   takes individual form fields, dash-joined, prefixed with =settings-=, one per
-   setting. A 204 is not proof that anything happened.
+   success code and changed nothing. The endpoint doesn't take a blob; it takes
+   individual form fields, dash-joined, one per setting. This is the one that
+   taught me a 204 is not proof anything happened.
 
 3. *A default profile breaks the database.* Setting a default language profile
-   made every new series fail to insert with =FOREIGN KEY constraint failed=: the
-   profile id could not be resolved at insert time. The workaround is to leave
-   the default unset and assign the profile directly instead. It is a bug in this
-   Bazarr build, but the workaround is small enough to live with.
+   made every new series fail to insert with =FOREIGN KEY constraint failed=.
+   The workaround is to leave the default unset and assign the profile directly.
+   It's a bug in this Bazarr build, but the workaround is small enough to live
+   with.
 
-4. *It thought there was nothing to do.* This is the one I would put on a poster.
+4. *It thought there was nothing to do.* This is the one I'd put on a poster.
    With the connection working and the provider authenticated, the search found
    nothing, because Bazarr counts the *embedded* subtitles as satisfying the
    language. The file already had English subtitles, after all; they were just
-   the PGS ones the browser cannot use. So the fix was to tell it to ignore the
-   embedded and image-based tracks (=use_embedded_subs=false=,
-   =ignore_pgs_subs=true=) so it would treat English as genuinely missing. Then
-   it went and fetched SRTs, and they landed next to the files.
+   the PGS ones the browser can't use. So the fix was to tell it to ignore the
+   embedded and image-based tracks so it would treat English as genuinely
+   missing. Then it went and fetched SRTs, and they landed next to the files.
 
-The lesson repeats the one from the GPU. "The file has subtitles" and "the player
-can use the subtitles" are different statements, and the software will happily
-report success on the first while failing the second.
+The lesson repeats the one from the GPU, and I didn't see it the first time:
+"the file has subtitles" and "the player can use the subtitles" are different
+statements, and the software will happily report success on the first while
+failing the second.
 
 ** What it bought
 
 An SRT next to the file turns the whole chain into the cheap path. The stream is
-no longer transcoded to burn in bitmaps; it is remuxed, the soft subtitle rides
+no longer transcoded to burn in bitmaps; it's remuxed, the soft subtitle rides
 alongside, and the CPU goes back to sleep. The same episode that wanted three
 cores and a software overlay now barely registers.
 
 So both halves ended the same way: a device that was present but not permitted,
-and a subtitle that was present but not renderable, each fixed by finding the
-one gate that actually mattered. The GPU is now schedulable, the subtitles are
-text, and the box is quiet again.
+and a subtitle that was present but not renderable, each fixed by finding the one
+gate that actually mattered. The GPU is now schedulable, the subtitles are text,
+and the box is quiet again.
 
 #+begin_quote
 *Building the lab* — part 7. Previous: [[file:2026-10-20-an-agent-for-the-lab.org][An agent for the lab, on a leash]].

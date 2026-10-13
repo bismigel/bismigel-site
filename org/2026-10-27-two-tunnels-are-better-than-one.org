@@ -2,20 +2,23 @@
 #+DATE: 2026-10-27
 #+FILETAGS: homelab:kubernetes:cloudflare
 
-The single scariest thing about the lab was the front door. One Cloudflare
-tunnel connector and one ingress controller, both on the same box. If either
-died, *everything* public went dark: the sites, the dashboards, the agent. That
-is a lot of eggs in one process.
+I only started worrying about the front door after something else broke and I
+realised how much depended on one box. One Cloudflare tunnel connector and one
+ingress controller, both on the same machine. If either died, *everything* public
+went dark: the sites, the dashboards, the agent. I hadn't thought about it until
+then, which is usually how I find these things.
 
 This is how I made the edge boring — two connectors, two ingresses, and a
-one-line routing change that lets either box answer.
+one-line routing change that lets either box answer. I'm writing it up partly
+because I'll forget, and partly because I didn't fully understand it until I'd
+done it.
 
 * The shape of the problem
 
 The lab is two single-node clusters. The "hosting" box runs ArgoCD, ingress-nginx
 and the `cloudflared` connector; the "media" box runs the media stack. Public
 hostnames come in through a Cloudflare Tunnel, and the tunnel's routing pointed
-at one place:
+at exactly one place:
 
 #+begin_example
 ciceley.cc        -> http://192.168.2.82:32080     # the hosting box's ingress
@@ -24,26 +27,27 @@ bismigel.dev      -> http://192.168.2.82:32080
 jellyfin.bismigel.dev -> http://192.168.2.81:30096
 #+end_example
 
-So the ingress and the connector were both a single point of failure on `.82`.
-A node failure, a crash, or even a bad rollout of either one took the whole edge
-with it. Two separate failure domains sharing one blast radius.
+So the ingress and the connector were both a single point of failure on `.82`. A
+node failure, a crash, or even a bad rollout of either one took the whole edge
+with it. Two things I'd been treating as separate were actually one blast radius.
 
 * The plan
 
-The fix has three parts, and none of them are exotic:
+Once I saw it clearly the fix looked less clever than I expected. Three parts:
 
 1. Run a **second `cloudflared` connector** on the media box. Cloudflare
-   load-balances a tunnel across all its connectors, so two connectors means the
-   tunnel survives one of them dying.
+   balances a tunnel across all its connectors, so two connectors means the
+   tunnel survives one of them dying. This was the bit I had to go read up on.
 2. Run a **second ingress-nginx** on the media box, on the *same* NodePort
    (`32080`) as the first.
 3. Point each public host at the connector's **local** ingress
-   (`http://127.0.0.1:32080`) instead of a hard-coded peer IP. Now every
-   connector serves from the ingress sitting next to it.
+   (`http://127.0.0.1:32080`) instead of a hard-coded peer IP.
 
-That last point is the one that makes it click. A tunnel's ingress rules name a
-service; with `127.0.0.1` that service is *the connector's own neighbourhood*.
-So both boxes can serve, and Cloudflare picks whichever connector is alive.
+The last one is the bit that made it click for me, and I didn't trust it until I
+watched it work. A tunnel's ingress rules name a service; with `127.0.0.1` that
+service is *the connector's own neighbourhood*. So both boxes can serve, and
+Cloudflare picks whichever connector is alive. Once I understood that, the whole
+design fell out of it.
 
 #+begin_src yaml
 # tunnel ingress (remote-managed, set via the API)
@@ -60,7 +64,8 @@ ingress:
 
 **The second connector.** Both boxes run cloudflared as a NixOS service off the
 same tunnel credentials (kept in SOPS). The media box had none, so it was a
-matter of adding the service and the secret:
+matter of adding the service and the secret. This is the part I was most nervous
+about, because it meant touching the media box, which I've grown protective of.
 
 #+begin_src nix
 services.cloudflared = {
@@ -78,12 +83,15 @@ sops.secrets."cloudflared_credentials" = {
 #+end_src
 
 The tunnel is remote-managed, so the `ingress` map above is just a local
-fallback; the authoritative routing lives in Cloudflare. But it is worth keeping
-roughly in sync so a locally-managed run would still be sane.
+fallback — the authoritative routing lives in Cloudflare. I keep it roughly in
+sync anyway, because I don't want to be surprised if I ever switch it to
+locally-managed.
 
 **The second ingress.** ingress-nginx is the same Helm chart, so the media
-cluster gets its own Application pointing at the same chart and the same
-NodePorts:
+cluster got its own Application pointing at the same chart and NodePorts. This
+was the easiest part by far, and it taught me why the GitOps shape is nice: the
+redundant copy is a ten-line file, because it's the same manifest with a
+different `destination`.
 
 #+begin_src yaml
 source:
@@ -100,11 +108,8 @@ destination:
   namespace: ingress-nginx
 #+end_src
 
-Because it is ArgoCD, it is the same manifest shape as the first one — just a
-different `destination`. Adding the redundant copy was a ten-line file.
-
-**The routing.** Finally, the tunnel config flips every public hostname from
-`http://192.168.2.82:32080` to `http://127.0.0.1:32080`. One API call:
+**The routing.** Finally the tunnel config, which flips every public hostname
+from `http://192.168.2.82:32080` to `http://127.0.0.1:32080`. One API call.
 
 #+begin_src shell
 curl -X PUT \
@@ -115,23 +120,27 @@ curl -X PUT \
 * The honest caveat
 
 This makes the *edge* highly available — the tunnel and the ingress survive a
-failure of either. It does **not** make the *apps* HA. The sites and dashboards
-still run on the hosting box; if that whole node dies, the surviving connector
-reaches the media box's ingress, which has no matching Ingress resource and
-returns 404. Edge HA is necessary for app HA, not sufficient.
+failure of either. It does **not** make the *apps* HA, and it took me longer
+than I'd like to admit to spot that. The sites and dashboards still run on the
+hosting box; if that whole node dies, the surviving connector reaches the media
+box's ingress, which has no matching Ingress resource and returns 404. Edge HA is
+necessary for app HA, not sufficient, and I'd rather write that down than let the
+blog imply something it doesn't do.
 
-To go further you would mirror the (stateless) apps onto both clusters so either
-ingress has a backend. That is the next step, and it is a bigger one — it means
-the apps have to be cluster-agnostic, which is a real design decision rather than
-a config flip.
+To go further I'd mirror the (stateless) apps onto both clusters so either
+ingress has a backend. That's a bigger job, and I'm not sure I want the apps to
+be cluster-agnostic yet. It's a design decision I want to make on purpose rather
+than in a hurry.
 
 * What it buys
 
-For a homelab, this is the right stopping point: the most likely failures — a
-crash-looping connector, a bad ingress rollout, a process dying — now degrade to
-"one box serves instead of two" rather than "the whole edge is down". The tunnel
-shows two healthy connections, the sites answer, and the front door stops being
-the thing I worry about. That is worth ten lines of YAML and one `curl`.
+For a homelab this is the right stopping point for now. The failures I actually
+expect — a crash-looping connector, a bad ingress rollout, a process dying — now
+degrade to "one box serves instead of two" rather than "the whole edge is down".
+The tunnel shows two healthy connections, the sites answer, and the front door
+stops being the thing I worry about. For ten lines of YAML and one `curl`, that
+feels like a fair trade — and it's the first time an HA change has felt this
+small to me.
 
 #+begin_quote
 *Building the lab* — part 8. Previous: [[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod (and the subtitle trap)]].
