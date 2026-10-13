@@ -7,90 +7,89 @@
 [[file:2026-10-20-an-agent-for-the-lab.org][An agent for the lab, on a leash →]]
 #+end_quote
 
-I resisted using a model to write code for longer than I should have. It felt
-like something I was supposed to have an opinion about being against. But a lot
-of what holds this lab together is genuinely dull — NixOS modules, Kubernetes
-manifests, and the same small patterns in slightly different shapes over and
-over — and I was spending evenings retyping things I'd already figured out. So I
-let a model do it, and then spent a while working out where that was a good idea
-and where it wasn't. I'm still working that out, honestly.
+I held off using a model to write code for longer than I should have. I think I
+felt like I was supposed to be against it. But a lot of what holds this lab
+together is genuinely boring: NixOS modules, Kubernetes manifests, and the same
+small patterns in slightly different shapes over and over. I was spending evenings
+retyping things I'd already figured out. So I let a model do it, and then spent a
+while figuring out where that was a good idea and where it wasn't. I'm still
+figuring that out, honestly.
 
 * What I hand it
 
-The rough rule I settled on: if I can describe the shape of the answer in a
-sentence, I let the model write it. A new ExternalSecret that mirrors an existing
+The rough rule I settled on: if I can describe the shape of the answer in one
+sentence, I let the model write it. A new ExternalSecret that copies an existing
 one. A Deployment with the labels and probes the rest of the cluster expects. A
-shell script that does a thing I've already done three times. These aren't
-problems to solve; they're typing, and I've stopped feeling like I'm learning
-anything by doing them myself.
+shell script that does something I've already done three times. These aren't
+problems to solve. They're typing, and I've stopped feeling like I learn anything
+by doing them myself.
 
-The bigger the mechanical part and the smaller the judgement part, the better it
-does. Renaming a field across twenty files, writing the tenth variation of a
-GitHub Actions step, turning a schema into structs. It does those instantly and
-correctly, whereas I'd make a typo and then hunt it down for ten minutes.
+The more mechanical the job and the less judgment it needs, the better it does.
+Renaming a field across twenty files, writing the tenth version of a GitHub
+Actions step, turning a schema into structs. It does those instantly and
+correctly. I'd make a typo and then spend ten minutes hunting it down.
 
 * Where it earns its keep
 
-Two things surprised me with how useful they were. The first is
-*cross-language translation*. I can read a Kubernetes manifest, but I don't
-remember the exact shape of every field, and I certainly don't remember NixOS
-option names. Having something that does is a real speedup, because when I get
-an option name wrong the failure is a build error five minutes later, not a
-subtle bug — so I can get away with not knowing, and check it the cheap way.
+Two things surprised me with how useful they were. The first is *cross-language
+translation*. I can read a Kubernetes manifest, but I don't remember the exact
+shape of every field, and I definitely don't remember NixOS option names. Having
+something that does is a real speedup. When I get an option name wrong, the
+failure is a build error five minutes later, not a subtle bug. So I can get away
+with not knowing, and find out the cheap way.
 
-The second is *the first draft of anything boring*. I'll happily write the
-second draft of a script; I resent the first. So I ask for a first draft, read
-it, and rewrite the parts that actually matter. It gets me off the blank page,
-which turns out to be most of my friction.
+The second is *the first draft of anything boring*. I'll happily write the second
+draft of a script. I hate writing the first. So I ask for a first draft, read it,
+and rewrite the parts that actually matter. It gets me started, which turns out to
+be the hard part for me.
 
 * Where it does not
 
-It's confidently wrong about anything recent or niche, and my whole lab is niche.
-It will invent a Helm value that doesn't exist, assume a default that changed two
-versions ago, or write a perfectly reasonable manifest that quietly does the
-wrong thing for *this* cluster because it has no idea what this cluster is. I've
-been burned by all three, which is how I know.
+It's confidently wrong about anything recent or unusual, and my whole lab is
+unusual. It will make up a Helm value that doesn't exist, assume a default that
+changed two versions ago, or write a manifest that looks fine but quietly does the
+wrong thing for *this* cluster, because it has no idea what this cluster is. All
+three have happened to me, which is how I know.
 
-So the line for me is: it drafts, I own. Nothing it writes reaches the cluster
-without me reading it, and anything touching secrets, the network edge, or the
-shape of the data is mine to get right. The way I think of it now is a fast,
-tireless, slightly overconfident junior — useful, as long as you don't let it
-merge.
+So my line is: it drafts, I decide. Nothing it writes reaches the cluster without
+me reading it. Anything touching secrets, the network edge, or the shape of the
+data is mine to get right. I think of it like a fast, tireless, slightly
+overconfident junior. Useful, as long as you don't let it merge.
 
 * Keeping the keys out
 
 The one rule I won't bend: the model never sees a secret. It doesn't need the
-value of anything to write the code that *references* it, and the values live in
-a store the code only names. I try to treat prompts the same way — a pasted
-config, a log line, a token in an error message. If I need to show it something,
-it's a placeholder, never the real thing. I've caught myself pasting a real value
-once, and that's once too many.
+value of anything to write code that *references* it. The values live in a store
+that the code only names. I try to treat prompts the same way: a pasted config, a
+log line, a token in an error message. If I need to show it something, it's a
+placeholder, never the real thing. I caught myself pasting a real value once, and
+once is too many.
 
 * What I can actually open-source
 
-Part of why I like this setup is that it's supposed to be reproducible, so I
-periodically re-check which repos could be public. The honest answer is two
-buckets.
+Part of why I like this setup is that it's supposed to be reproducible. So every
+so often I check which repos could be made public. The honest answer is two
+groups.
 
 The generic ones are fine as they are, because there's nothing personal in them:
-the app template, the little test APIs, the site itself. Nothing about my
-network leaks from a template full of placeholders.
+the app template, the little test APIs, the site itself. Nothing about my network
+leaks from a template full of placeholders.
 
-The homelab repos are the interesting case. There are no secrets in them — no
-keys, tokens, or passwords; everything sensitive lives in the store, and the
-manifests only reference names. But they do *describe* the lab, and the lab isn't
-abstract: the boxes, the private addresses, the subdomains, the ports. Making
-them public wouldn't hand anyone a credential; it would hand them a map. For a
-lot of homelabbers that's a fine trade, and honestly it's why the repos are
-interesting to read. For me it's a decision I want to make on purpose rather than
-by accident, so the sensitive ones stay private and the boring ones don't.
+The homelab repos are the interesting case. There are no secrets in them: no
+keys, tokens, or passwords. Everything sensitive lives in the store, and the
+manifests only mention names. But they do *describe* the lab, and the lab isn't
+abstract. The boxes, the private addresses, the subdomains, the ports. Making them
+public wouldn't hand anyone a password. It would hand them a map of my network. A
+lot of homelabbers are fine with that, and honestly that's why these repos are
+interesting to read. For me it's a decision I want to make on purpose, not by
+accident. So the sensitive ones stay private and the boring ones don't.
 
 * The thing underneath
 
 The agent that tends this lab, which I'll write about next, runs on the same kind
-of model, and it's the same lesson one level up: the model is great at the
-mechanical and unreliable at the judgement, so the whole design is about putting
-the judgement somewhere it can't reach and letting it do the rest.
+of model. It's the same lesson one level up: the model is good at the mechanical
+and unreliable at the judgment. So the whole design is about putting the judgment
+somewhere it can't reach, and letting it do the rest.
 
 #+begin_quote
 *Building the lab* — part 5. Previous: [[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext]].

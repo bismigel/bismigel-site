@@ -7,84 +7,72 @@
 [[file:2026-10-02-how-this-site-is-built.org][How this site is built →]]
 #+end_quote
 
-I've been putting this homelab together for a while now, and I'm still not sure
-I've got it right. But it's finally at a point where I can walk through what's
-there and try to explain why I made the choices I did — partly for whoever reads
-this, and partly to work out for myself whether they were good ones.
+I've been messing around with this homelab for a few months. I am not an expert
+at any of it. Most of what's here I copied from guides and other people's configs
+and then changed bits until it worked. I'm writing it down so I don't forget, and
+in case it helps someone else who's also just trying to make it work.
 
-* Two machines, two jobs
+* Two machines
 
-Right now there are two physical boxes:
+I have two computers.
 
-- An *AMD Ryzen 5 4600G* (6c/12t). These were the leftover parts from my old PC
-  after I swapped in a 4600G — I'd read it was better perf-per-watt on AM4, and
-  I had the socket anyway. It ended up being the one that serves the websites
-  and runs most of the platform pieces, and where I poke at things I want to
-  learn.
+- The first is an AMD Ryzen 5 4600G. These were the parts left over from my old
+  PC. I read online that this CPU was good for home servers, so it became the one
+  that runs my websites and most of the other stuff.
 
-- An *Intel i5-7500T* I picked up for about $100 off Marketplace. I bought it
-  specifically because that generation has QuickSync, which I'd read does
-  hardware video transcoding. I'm still learning how much that actually matters
-  in practice.
+- The second is an Intel i5-7500T. I bought it used for about $100. I got this
+  one on purpose because I read that this generation of Intel can do something
+  called QuickSync, which is supposed to help with video. I still don't fully
+  understand how that works.
 
-The split wasn't something I planned carefully up front — it's more that the
-7500T felt like it would be wasted on general apps, so the media stuff
-gravitated to it and everything else stayed on the AMD box. I *think* that's the
-right call, but I keep wondering if it's just me rationalising the hardware I
-happened to buy.
+I didn't sit down and plan the split between the two. It just kind of happened.
+The Intel one seemed like it would be a waste on normal things, so the video
+stuff went there. Maybe that's obvious and maybe it isn't. It's what I did.
 
-* Everything is NixOS
+* NixOS
 
-This started out running in Proxmox LXCs, but I never got comfortable with the
-extra layer sitting between me and the thing I was actually trying to change.
-Going bare-metal removed that layer and I've been happier since.
+I started out running everything in Proxmox containers. I didn't like it. There
+was always an extra thing in my way before I could get to the thing I actually
+wanted to change. So I wiped it and put the operating system straight on the
+hardware.
 
-I picked NixOS mostly because I kept drifting: I'd set something up by hand,
-forget what I'd done, and not be able to reproduce it. NixOS describes the whole
-machine in one flake, so there's a spec to go back to. I'm still very much
-learning it — the language trips me up constantly — but the idea that the OS is
-just code I can re-run is the thing that's kept me on it.
+I picked NixOS because I kept forgetting what I'd done to my machines. I'd set
+something up, not write it down, and then have no idea how to do it again. NixOS
+puts the whole machine in one file that I can look back at. I still find the
+NixOS language hard and I copy a lot of it. But being able to redo a machine from
+that file is the reason I stuck with it.
 
 #+begin_src shell
 nix run github:serokell/deploy-rs -- .#<host>
 #+end_src
 
-I don't fully trust my memory with these systems, so being able to rebuild a
-machine from the same flake and get back to a known state is the point for me.
+* Kubernetes
 
-* Kubernetes, but boring
+If I'm honest, I could have just used plain Docker and it would have worked fine.
+Part of why I went with Kubernetes is that I wanted to learn it. I figured if it
+broke I'd learn something. I don't know it very well yet.
 
-A single Docker host would honestly have been simpler, and I want to be honest
-that part of why I chose Kubernetes was just to learn it. I wanted to actually
-feel the pain of managing a cluster, and to get to use the GitOps tools people
-keep mentioning (Flux, ArgoCD) instead of writing an Ansible job and hoping.
+So each machine runs a small thing called k3s. When I set it up there were two
+extra pieces turned on by default, Traefik and something for load balancing. I
+didn't understand what either of them did, so I turned them off and used
+ingress-nginx instead, because I could follow what it was doing. Maybe that's the
+wrong choice. It's the one I could understand.
 
-So each box runs a single-node ~k3s~. I turned off Traefik and the built-in
-load balancer because I couldn't figure out what they were doing, and replaced
-them with *ingress-nginx* so I could actually see the routing. That's probably
-the less "correct" choice and I'm okay with that for now — I learn better when
-nothing is hidden from me.
+I only put that ingress thing on the machine that needs it. The other machine
+just gets reached directly.
 
-I only run ingress where I could work out a reason for it: the box behind the
-tunnel. The media box still just gets reached by its own NodePorts on the LAN,
-which I realise is not very elegant.
+* ArgoCD
 
-* GitOps with ArgoCD
+I keep the setup for my cluster in a git repository, and a tool called ArgoCD
+tries to make the cluster look like what's in git. I only really understand it at
+a high level.
 
-The whole cluster state lives in git and *ArgoCD* tries to keep reality matching
-it. One repo (~bakuran-gitops~) is the source of truth, which is the closest
-I've come to actually understanding my own setup.
+The part I'm most proud of, and also least sure about: I run one ArgoCD, on the
+first machine, and it manages *both* machines. I read that you're supposed to run
+one per machine, but that sounded like twice the work, so I tried it the other
+way. It works so far. I could not tell you what happens if it breaks.
 
-The part I'm most pleased with, and least sure about: I run a *single ArgoCD*,
-on the hosting box, and I got it to manage *both* clusters — the hosting one
-in-cluster, and the media one registered as an external cluster. I kept reading
-that you'd run one per cluster, but two felt like double the thing to maintain,
-so I tried the one-plane approach. It works, but I honestly couldn't tell you all
-the failure modes yet.
-
-The repo is one root app pointing at a folder of =Application= definitions,
-split per cluster, with an =ApplicationSet= for anything that should show up on
-every cluster:
+Everything lives in folders like this:
 
 #+begin_example
 bakuran-gitops/
@@ -96,51 +84,45 @@ bakuran-gitops/
   manifests/<app>/...           # raw manifests the apps point at
 #+end_example
 
-The cluster generator is the bit I found genuinely clever: it asks ArgoCD which
-clusters it knows about, so adding a cluster means it gets the shared stuff
-without me copying manifests around. I still don't fully understand how it
-decides, but it does what I want.
+There's a clever bit that picks up new machines automatically. I copied it from
+an example and it does what I want. I couldn't explain exactly how.
 
-I haven't moved deploys into CI, and I'm not sure I want to yet:
+When I change an app:
 
-1. I push application code.
-2. CI builds an image and pushes it to GHCR.
-3. CI bumps the image tag in the manifests.
-4. ArgoCD notices and rolls it out.
+1. I push the code.
+2. A robot builds it and puts it in a storage place.
+3. The robot edits the version number in my config.
+4. ArgoCD notices and updates the running app.
 
-The thing I do like about this: CI never holds cluster credentials. It only
-pushes a tag. I'm sure there are holes in my understanding of the security here,
-but it felt like the right shape.
+I like this because the robot never gets the keys to my cluster. It can only
+change one number. I'm sure there are things wrong with it that I don't know
+about.
 
-* Applications are reproducible
+* Apps
 
-Every app repo has a =deploy/k8s/= folder (Deployment, Service, Ingress) and a
-workflow that builds its image. To start something new I use
-~homelab-app-template~, which I set up so I stop re-inventing the same wiring.
-It means I can spend my time on the app instead of the plumbing — which is still
-the part I find least interesting.
+Every app has a little folder with the files that tell Kubernetes how to run it,
+plus a robot that builds the app into a picture of a container. I have a starter
+template so I don't have to write the boring parts again. I usually just write
+the app part. That's the part I find fun.
 
-* The edge is one Cloudflare tunnel
+* The internet part
 
-Nothing is port-forwarded. A single ~cloudflared~ tunnel dials out to Cloudflare,
-and public hostnames route to ~ingress-nginx~ on the hosting box. TLS terminates
-at Cloudflare. This is the piece I understand the least and trust the most,
-which probably isn't a great combination — I'll write more about the edge once
-I've broken it in anger.
+Nothing on my machines is opened up to the internet directly. A program called
+cloudflared makes an outgoing connection to Cloudflare, and that's how the
+outside world reaches my websites. I understand this part the least, and oddly I
+trust it the most. I'll probably write more about it if it ever breaks.
 
 * Secrets
 
-At this point secrets were *Sealed Secrets*: encrypted in git, decrypted by a
-controller in the cluster. Host-level secrets like the tunnel credentials are
-*SOPS*/age encrypted in the NixOS repo, keyed off each machine's SSH host key. I
-picked these mostly by reading what other people did and copying them.
+This is passwords and keys. My first try used something called Sealed Secrets. I
+picked it because other people used it, not because I understood it. Host
+passwords use something called SOPS.
 
-(Since writing this I've moved the cluster half to a managed secret store, and
-put the two clusters under one control plane. I've written up the thinking in
+(I've since changed the cluster half to a different thing. I wrote about that in
 [[file:2026-10-11-choosing-the-architecture.org][Choosing the architecture]],
-mostly because I'm still not sure it's the final answer.)
+mostly because I'm still not sure the new way is right either.)
 
-* What it looks like end to end
+* How it all fits together
 
 #+begin_example
 push -> CI (build + push image + bump tag) -> ArgoCD -> both clusters
@@ -148,8 +130,8 @@ push -> CI (build + push image + bump tag) -> ArgoCD -> both clusters
                                                       -> cloudflared -> internet
 #+end_example
 
-The shape of it, as a picture (I find this easier to hold in my head than the
-directory tree):
+Here it is as a picture, because lists of words are hard for me to hold in my
+head:
 
 #+begin_src mermaid
 flowchart TB
@@ -173,16 +155,13 @@ flowchart TB
   end
 #+end_src
 
-The thing I keep coming back to is that one ArgoCD (on the hosting box) reaches
-across to manage the media box. It's the decision I'm least sure about and the
-one that makes the whole thing fit in my head.
+* What changed later
 
-* Where it went next
-
-That was the design as I first got it working, and I've since changed a few
-things as I ran into walls. What I changed, and why, is in
-[[file:2026-10-11-choosing-the-architecture.org][Choosing the architecture]] —
-that post is a much more honest record of the learning than this one.
+That's how it started. I've changed a few things since, mostly because I ran into
+walls. The honest version of what changed and why is in
+[[file:2026-10-11-choosing-the-architecture.org][Choosing the architecture]],
+which I think is a better post than this one because it's about getting it wrong
+and fixing it.
 
 #+begin_quote
 *Building the lab* — part 1. Next: [[file:2026-10-02-how-this-site-is-built.org][How this site is built]].

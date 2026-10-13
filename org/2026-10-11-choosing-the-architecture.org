@@ -7,17 +7,17 @@
 [[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext →]]
 #+end_quote
 
-I already wrote a tour of the homelab. This one is more honest: it's the
-decisions behind it, including the ones I made, unmade, and made again after
-actually living with them for a while and finding out I was wrong.
+I already wrote a tour of the homelab. This one is about the decisions behind it.
+Some I made and kept, some I made and undid, and some I made again after living
+with them for a while and finding out I was wrong.
 
 * One control plane, or two
 
 The first thing I had to decide was how to manage two separate single-node
-clusters. I assumed the obvious answer was an ArgoCD on each box. It works, but
-it meant two control planes to babysit, two sets of repo credentials to keep in
-sync, and no single place to see the whole lab — and I knew I'd get them out of
-step almost immediately.
+clusters. I thought the obvious answer was one ArgoCD on each box. That works, but
+it means two control planes to look after, two sets of git credentials to keep in
+sync, and no one place to see the whole lab. I knew I'd get them out of step
+almost right away.
 
 So I tried the other way: *one* ArgoCD, on the hosting box, managing *both*
 clusters, with the media box registered as an external cluster. An app just says
@@ -28,75 +28,73 @@ destination:
   name: calamansi-intel   # or in-cluster for the hosting box
 #+end_src
 
-I'm not going to pretend I understood all the implications when I did this. I
-found out afterwards that the cost is the control plane being a single blast
-radius, and the win is that there is exactly one place the desired state lives.
-The win is worth it to me right now; ask me again after the first time the
-control plane is what breaks.
+I'm not going to pretend I understood what I was doing. I found out later that
+the downside is that if the control plane breaks, both clusters go with it. The
+upside is that there's only one place the desired state lives. That's worth it to
+me right now. Ask me again after the first time the control plane is the thing
+that breaks.
 
 * Where each thing runs
 
-I split the apps deliberately, though "deliberately" is doing some work there —
-it was more that I couldn't justify putting a transcoding job anywhere but the
-box with QuickSync. The media stack lives on the Intel box, and everything else
-(lives on the AMD box). It's not just tidiness: the Intel chip earns its place
-by transcoding, and the Ryzen earns its place by running everything else. It's
-the kind of thing that looks obvious written down and took me a while to land
-on.
+I split the apps between the two boxes, but I can't really call it a plan. It was
+more that I couldn't see any reason to put a transcoding job on anything but the
+box with QuickSync. So the media stack lives on the Intel box, and everything else
+lives on the AMD box. The Intel chip earns its place by transcoding, and the Ryzen
+earns its place by running everything else. It looks obvious written down, but it
+took me a while to get there.
 
 * Secrets: it took three tries
 
-This is the part I'm most embarrassed about, and the most useful to write down.
-I went through three setups before landing on one I trust:
+This is the part I'm most embarrassed about, and the most useful to write down. I
+went through three setups before landing on one I trust:
 
-1. *SOPS with age* for host secrets. Clean, keyed off each machine's SSH host
-   key, no extra service. This one stuck.
-2. *Sealed Secrets* for cluster secrets. Encrypted in git, decrypted in-cluster.
-   It seemed clever until I had two clusters: each has its own sealing key, so
-   every secret had to be sealed per cluster, and losing a cluster lost its key.
-   I'd picked it by copying, without thinking about the second cluster.
+1. *SOPS with age* for host secrets. It's simple, it uses each machine's own SSH
+   host key, and there's no extra service to run. I kept this one.
+2. *Sealed Secrets* for cluster secrets. They're encrypted in git and decrypted
+   in the cluster. It seemed clever until I got a second cluster: each has its own
+   sealing key, so I had to seal every secret again for the second cluster, and
+   losing a cluster meant losing its key. I picked this one by copying what other
+   people did, without thinking about there being a second cluster.
 3. *Bitwarden Secrets Manager with External Secrets Operator*. The store is
-   *outside* the lab, so a cluster wipe does not lose it. Rotating a credential
-   is editing it in Bitwarden, not re-sealing a blob. This is the one I'd start
-   with if I did it again, which is a sentence I hate writing.
+   *outside* the lab, so wiping a cluster doesn't lose it. To change a password I
+   edit it in Bitwarden instead of re-sealing something. If I did it again, this
+   is what I'd start with. I don't love admitting that.
 
 * Being able to rebuild it
 
-The test I kept asking myself was blunt, and I resisted it for a while because I
-suspected I'd fail it: if both boxes die tomorrow, what do I actually need to
-have kept?
+The question I kept asking myself was simple, and I put off answering it because I
+thought I'd fail: if both boxes die tomorrow, what do I actually need to still
+have?
 
-The answer turned out to be smaller than I feared. Everything declarative (the
-OS flake, the cluster state, the app manifests) is in git. Everything secret is
-in Bitwarden. The only things that are neither are the *keys to those two
-things*, so I back those up: the host SSH keys, the kubeconfig, the Bitwarden
-machine token, encrypted and pushed to object storage on a timer. I'm not sure
-it's a *good* backup strategy yet — I haven't tested a restore end to end — but
-it's a written-down sequence instead of an archaeology project.
+The answer was smaller than I feared. Everything declarative (the OS flake, the
+cluster state, the app manifests) is in git. Everything secret is in Bitwarden.
+The only things that are neither are the *keys to those two places*. So I back
+those up: the host SSH keys, the kubeconfig, the Bitwarden machine token. They get
+encrypted and pushed to object storage on a timer. I wouldn't call it a good
+backup plan yet, because I haven't tested a restore from start to finish. At least
+it's written down, instead of something I'd have to figure out later.
 
 * Identity and the front door
 
 The tunnel is the only way in, and Cloudflare Access sits in front of it, so a
-request has to be *someone* before it reaches an app. Where an app can consume
-the identity Access passes along, I let it, so each person gets their own
-account. Where it cannot — the download clients, mostly — it's one shared login.
-I arrived at that hybrid less by design than by hitting walls, but it's honest
-about the tools.
+request has to belong to someone before it reaches an app. If an app can use the
+identity that Access passes along, I let it, so each person gets their own
+account. If it can't (mostly the download clients), it's one shared login. I
+didn't plan this mix; I got here by running into walls. It's what the tools could
+do.
 
 * What I would still change
 
-The current front door trusts the identity header Access injects. I only
-realised later that this is safe *only* if the origin is reachable *only* through
-the tunnel, and right now the services are also reachable on the LAN — so the
-header can be forged there. I haven't fixed it, and I wouldn't call the lab
-hardened until I do. This is the kind of thing I'd rather write down than
-quietly leave, because I'll forget.
+The current front door trusts the identity header that Access adds. I only figured
+out later that this is safe only if the origin can be reached only through the
+tunnel. Right now the services can also be reached on the LAN, so the header can
+be faked there. I haven't fixed it. I wouldn't call the lab secure until I do. I'd
+rather write this down than leave it unsaid, because I'll forget.
 
-The whole thing is a work in progress, which is sort of the point. The property
-I was actually after is that each layer is replaceable: the OS, the cluster, the
-secrets, the edge. I'm finding that swapping any one of them doesn't require
-touching the rest, and every time I've had to do that, it's taught me more than
-reading about it did.
+The whole thing is unfinished, which is kind of the point. What I really wanted is
+for each layer to be replaceable: the OS, the cluster, the secrets, the edge. So
+far, swapping any one of them hasn't meant touching the rest. Every time I've had
+to do it, I've learned more than I did from reading about it.
 
 #+begin_quote
 *Building the lab* — part 3. Previous: [[file:2026-10-02-how-this-site-is-built.org][How this site is built]].
