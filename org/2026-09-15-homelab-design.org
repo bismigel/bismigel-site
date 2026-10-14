@@ -107,6 +107,27 @@ and that's how the outside reaches my sites. Access sits in front of it, so a
 request has to belong to someone first. I understand this part the least and trust
 it the most.
 
+* How it fits together
+
+Lists of words are hard for me to hold in my head, so here it is as a picture:
+
+#+begin_src mermaid
+flowchart TB
+  user([Internet]) --> cf[Cloudflare edge<br/>TLS + Access]
+  cf --> tunnel[cloudflared tunnel]
+
+  subgraph cluster["one k3s cluster"]
+    direction TB
+    tunnel --> ingress[ingress-nginx]
+    argo[[ArgoCD<br/>one control plane]]
+    ingress --> apps["sites, APIs, dashboard, agent<br/>(.82 AMD box)"]
+    argo -. manages .-> apps
+    argo -. manages .-> media["media stack<br/>(.81 Intel + QuickSync)"]
+    media --- disk[(/mnt/media<br/>mergerfs)]
+    mbp["MacBook .83<br/>control plane only"]
+  end
+#+end_src
+
 * What I'd still change
 
 The front door trusts an identity header Access adds, which is only safe if the
