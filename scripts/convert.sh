@@ -48,6 +48,10 @@ for f in org/*.org; do
   # Rewrite them to the real post URL, /posts/<slug>/.
   sed -i -E 's#\]\(([0-9A-Za-z._-]+)\.org\)#](/posts/\1/)#g' "$md"
 
+  # Pandoc escapes apostrophes as \' in its markdown output, which then shows up
+  # as a literal backslash in the rendered HTML (title and body). Drop the escape.
+  sed -i "s/\\\\'/'/g" "$md"
+
   out="content/posts/$slug/index.md"
   if [ -n "$tags" ]; then
     awk -v t="$tags" 'NR==1 && $0=="---" {print; print "tags: [" t "]"; next} {print}' "$md" > "$out"
