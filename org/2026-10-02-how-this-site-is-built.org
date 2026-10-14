@@ -4,7 +4,7 @@
 
 #+begin_quote
 *Building the lab* — part 2 of 8. ← [[file:2026-09-15-homelab-design.org][The design of the homelab]] ·
-[[file:2026-10-11-choosing-the-architecture.org][Choosing the architecture →]]
+[[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext →]]
 #+end_quote
 
 I wanted somewhere to write. I didn't want to run a database or learn a whole
@@ -72,5 +72,5 @@ tell *where* it broke. That's been more useful to me than anything clever.
 
 #+begin_quote
 *Building the lab* — part 2. Previous: [[file:2026-09-15-homelab-design.org][The design of the homelab]].
-Next: [[file:2026-10-11-choosing-the-architecture.org][Choosing the architecture]].
+Next: [[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext]].
 #+end_quote

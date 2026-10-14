@@ -3,7 +3,7 @@
 #+FILETAGS: homelab:media:kubernetes:jellyfin
 
 #+begin_quote
-*Building the lab* — part 7 of 8. ← [[file:2026-10-20-an-agent-for-the-lab.org][An agent for the lab, on a leash]] ·
+*Building the lab* — part 6 of 8. ← [[file:2026-10-16-deepseek-writes-the-boring-parts.org][Where AI fits in the lab]] ·
 [[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one →]]
 #+end_quote
 
@@ -217,6 +217,6 @@ single gate that actually mattered. The GPU is now usable, the subtitles are tex
 and the box is quiet again.
 
 #+begin_quote
-*Building the lab* — part 7. Previous: [[file:2026-10-20-an-agent-for-the-lab.org][An agent for the lab, on a leash]].
+*Building the lab* — part 6. Previous: [[file:2026-10-16-deepseek-writes-the-boring-parts.org][Where AI fits in the lab]].
 Next: [[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one]].
 #+end_quote
