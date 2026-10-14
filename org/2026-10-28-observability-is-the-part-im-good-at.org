@@ -1,9 +1,10 @@
 #+TITLE: Observability is the part I'm actually good at
-#+DATE: 2026-10-14
+#+DATE: 2026-10-28
 #+FILETAGS: homelab:observability:monitoring
 
 #+begin_quote
-*Building the lab* — a companion to [[file:2026-10-14-a-macbook-and-an-ai.org][A MacBook, an AI, and a cluster that stopped falling over]].
+*Building the lab* — part 8 of 8. ← [[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one]] ·
+you're at the end.
 #+end_quote
 
 Most of this lab is me learning in public. I write about the parts I barely
@@ -65,7 +66,7 @@ than forty I've muted.
 
 * The brag: my backups tell on themselves
 
-This is the part I'm proudest of, and it comes straight out of the MacBook post —
+This is the part I'm proudest of, and it comes straight out of the cluster post —
 where I discovered my "backup" had been failing every night for who knows how long.
 I had a backup I believed in that simply didn't exist. The only reason I know that
 story is that I went looking.
@@ -97,3 +98,8 @@ you'll actually see them. And watch your backups succeed at least once — or be
 make them scream when they don't.
 
 I'm not smart about most of this lab. But this part I know, and it shows.
+
+#+begin_quote
+*Building the lab* — part 8. Previous:
+[[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one]].
+#+end_quote

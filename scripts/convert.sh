@@ -43,6 +43,11 @@ for f in org/*.org; do
   "$PANDOC" -s -f org -t markdown --wrap=none "$src" -o "$md"
   rm -f "$src"
 
+  # Org cross-links to sibling posts are written as [[file:<slug>.org][...]],
+  # which pandoc renders as a relative href to a .org file -> 404 on the site.
+  # Rewrite them to the real post URL, /posts/<slug>/.
+  sed -i -E 's#\]\(([0-9A-Za-z._-]+)\.org\)#](/posts/\1/)#g' "$md"
+
   out="content/posts/$slug/index.md"
   if [ -n "$tags" ]; then
     awk -v t="$tags" 'NR==1 && $0=="---" {print; print "tags: [" t "]"; next} {print}' "$md" > "$out"

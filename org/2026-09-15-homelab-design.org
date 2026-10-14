@@ -7,161 +7,116 @@
 [[file:2026-10-02-how-this-site-is-built.org][How this site is built →]]
 #+end_quote
 
-I've been messing around with this homelab for a few months. I am not an expert
-at any of it. Most of what's here I copied from guides and other people's configs
-and then changed bits until it worked. I'm writing it down so I don't forget, and
-in case it helps someone else who's also just trying to make it work.
+I've been messing with this homelab for a few months and I'm not an expert at any
+of it. Most of what's here I copied from guides and other people's configs, then
+changed until it worked. I'm writing it down so I don't forget — this is the tour
+of what it turned into, and the decisions behind it.
 
-* Two machines
+* The boxes
 
-I have two computers.
+Two computers, and I didn't plan the split.
 
-- The first is an AMD Ryzen 5 4600G. These were the parts left over from my old
-  PC. I read online that this CPU was good for home servers, so it became the one
-  that runs my websites and most of the other stuff.
+- An AMD Ryzen 5 4600G, built from leftover parts. It runs my sites and most
+  everything else.
+- An Intel i5-7500T, bought used for about $100, because that generation can do
+  QuickSync — hardware video transcoding. It runs the media stack.
 
-- The second is an Intel i5-7500T. I bought it used for about $100. I got this
-  one on purpose because I read that this generation of Intel can do something
-  called QuickSync, which is supposed to help with video. I still don't fully
-  understand how that works.
-
-I didn't sit down and plan the split between the two. It just kind of happened.
-The Intel one seemed like it would be a waste on normal things, so the video
-stuff went there. Maybe that's obvious and maybe it isn't. It's what I did.
+Later a third turned up: a 2012 MacBook Pro under a pile of cables. It only helps
+the cluster agree and runs nothing itself. That's a later post.
 
 * NixOS
 
-I started out running everything in Proxmox containers. I didn't like it. There
-was always an extra thing in my way before I could get to the thing I actually
-wanted to change. So I wiped it and put the operating system straight on the
-hardware.
+I started on Proxmox, didn't like the extra layer between me and the thing I
+wanted to change, and wiped it to put the OS straight on the hardware.
 
-I picked NixOS because I kept forgetting what I'd done to my machines. I'd set
-something up, not write it down, and then have no idea how to do it again. NixOS
-puts the whole machine in one file that I can look back at. I still find the
-NixOS language hard and I copy a lot of it. But being able to redo a machine from
-that file is the reason I stuck with it.
+I picked NixOS because I kept forgetting what I'd done. Now the whole machine is
+one file I can read back. I still find the language hard and copy a lot of it, but
+being able to rebuild a box from that file is why I stayed.
 
 #+begin_src shell
 nix run github:serokell/deploy-rs -- .#<host>
 #+end_src
 
+* One cluster, not two
+
+This is the part I got wrong first. I started with two separate single-node
+clusters, one per box, each with its own copy of everything. Then I read that a
+single-node cluster is one machine, and a two-node one is actually *worse* than
+either — the cluster's memory needs a majority to agree, and with two you lose the
+majority the moment either dies.
+
+So I merged them into one cluster of three machines. The MacBook was just enough to
+tolerate losing one. "More machines" and "one cluster" are different ideas, and I'd
+confused them. The merge is its own post later.
+
+* Where things run
+
+The media stack is pinned to the Intel box, because it's the one with QuickSync and
+it'd be a waste anywhere else. Everything else lives on the AMD box. The MacBook is
+kept deliberately small — tainted so nothing lands on it. Written down it looks
+obvious; it took me a while.
+
 * Kubernetes
 
-If I'm honest, I could have just used plain Docker and it would have worked fine.
-Part of why I went with Kubernetes is that I wanted to learn it. I figured if it
-broke I'd learn something. I don't know it very well yet.
-
-So each machine runs a small thing called k3s. When I set it up there were two
-extra pieces turned on by default, Traefik and something for load balancing. I
-didn't understand what either of them did, so I turned them off and used
-ingress-nginx instead, because I could follow what it was doing. Maybe that's the
-wrong choice. It's the one I could understand.
-
-I only put that ingress thing on the machine that needs it. The other machine
-just gets reached directly.
+Honestly, plain Docker would have worked. I picked Kubernetes to learn it, and I
+don't know it well. Each box runs k3s. I turned off the two extras it ships with
+(Traefik and a load balancer) because I didn't understand them, and used
+ingress-nginx instead, which I could follow. Maybe the wrong call; it's one I can
+read.
 
 * ArgoCD
 
-I keep the setup for my cluster in a git repository, and a tool called ArgoCD
-tries to make the cluster look like what's in git. I only really understand it at
-a high level.
+The cluster's desired state lives in git and ArgoCD makes the cluster match it. I
+understand it at a high level. One ArgoCD runs *inside* the cluster and manages the
+whole thing — I can't tell you what happens if it breaks, which is part of why the
+control plane and the storage have backups.
 
-The part I'm most proud of, and also least sure about: I run one ArgoCD, on the
-first machine, and it manages *both* machines. I read that you're supposed to run
-one per machine, but that sounded like twice the work, so I tried it the other
-way. It works so far. I could not tell you what happens if it breaks.
-
-Everything lives in folders like this:
+The layout looks like this:
 
 #+begin_example
 bakuran-gitops/
   bootstrap/root-app.yaml       # the one root
-  clusters/                     # cluster registrations
-  applications/
-    <cluster>/...               # one folder per cluster
-    node-exporter-appset.yaml   # shared -> every cluster
+  applications/<cluster>/...    # one folder per cluster
   manifests/<app>/...           # raw manifests the apps point at
 #+end_example
 
-There's a clever bit that picks up new machines automatically. I copied it from
-an example and it does what I want. I couldn't explain exactly how.
+There's a clever bit that picks up new machines automatically. I copied it from an
+example and couldn't explain exactly how it works.
 
 When I change an app:
 
 1. I push the code.
-2. A robot builds it and puts it in a storage place.
-3. The robot edits the version number in my config.
-4. ArgoCD notices and updates the running app.
+2. A robot builds it and pushes a container image.
+3. The robot opens a pull request that bumps one version number.
+4. ArgoCD notices the merge and updates the running app.
 
-I like this because the robot never gets the keys to my cluster. It can only
-change one number. I'm sure there are things wrong with it that I don't know
-about.
-
-* Apps
-
-Every app has a little folder with the files that tell Kubernetes how to run it,
-plus a robot that builds the app into a picture of a container. I have a starter
-template so I don't have to write the boring parts again. I usually just write
-the app part. That's the part I find fun.
-
-* The internet part
-
-Nothing on my machines is opened up to the internet directly. A program called
-cloudflared makes an outgoing connection to Cloudflare, and that's how the
-outside world reaches my websites. I understand this part the least, and oddly I
-trust it the most. I'll probably write more about it if it ever breaks.
+I like this because the robot never gets the keys to my cluster — it can only
+change one number, and I approve it.
 
 * Secrets
 
-This is passwords and keys. My first try used something called Sealed Secrets. I
-picked it because other people used it, not because I understood it. Host
-passwords use something called SOPS.
+Short version: plaintext never enters git. Host secrets (like the tunnel
+credentials) stay encrypted in the NixOS repo with SOPS; cluster secrets live
+outside the lab in Bitwarden and get injected by External Secrets Operator. I went
+through two worse setups first — that's the post after next.
 
-(I've since changed the cluster half to a different thing. I wrote about that in
-[[file:2026-10-11-choosing-the-architecture.org][Choosing the architecture]],
-mostly because I'm still not sure the new way is right either.)
+* The front door
 
-* How it all fits together
+Nothing is exposed directly. A tunnel makes an outgoing connection to Cloudflare,
+and that's how the outside reaches my sites. Access sits in front of it, so a
+request has to belong to someone first. I understand this part the least and trust
+it the most.
 
-#+begin_example
-push -> CI (build + push image + bump tag) -> ArgoCD -> both clusters
-                                                      -> ingress-nginx
-                                                      -> cloudflared -> internet
-#+end_example
+* What I'd still change
 
-Here it is as a picture, because lists of words are hard for me to hold in my
-head:
+The front door trusts an identity header Access adds, which is only safe if the
+origin can be reached *only* through the tunnel. For a while the services were also
+reachable on the LAN, where that header can be faked. I fixed that since — the LAN
+can't bypass the edge anymore — but I'd rather leave it written down than pretend
+it was never a problem.
 
-#+begin_src mermaid
-flowchart TB
-  user([Internet]) --> cf[Cloudflare edge<br/>TLS + Access]
-  cf --> tunnel[cloudflared tunnel]
-
-  subgraph hosting["hosting box - AMD Ryzen (.82)"]
-    direction TB
-    tunnel --> ingress[ingress-nginx]
-    argo[[ArgoCD<br/>one control plane]]
-    ingress --> sites[sites + APIs + dashboard + agent]
-    argo -. manages .-> sites
-    argo -. manages .-> media
-  end
-
-  subgraph mediabox["media box - Intel i5 + QuickSync (.81)"]
-    direction TB
-    media[Sonarr - Radarr - Prowlarr<br/>Jellyfin]
-    disk[(/mnt/media<br/>mergerfs)]
-    media --- disk
-  end
-#+end_src
-
-* What changed later
-
-That's how it started. I've changed a few things since, mostly because I ran into
-walls. The honest version of what changed and why is in
-[[file:2026-10-11-choosing-the-architecture.org][Choosing the architecture]],
-which I think is a better post than this one because it's about getting it wrong
-and fixing it.
+Which is the theme: I've gotten more from the things I got wrong than from anything
+I read.
 
 #+begin_quote
 *Building the lab* — part 1. Next: [[file:2026-10-02-how-this-site-is-built.org][How this site is built]].

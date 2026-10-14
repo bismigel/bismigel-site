@@ -3,60 +3,46 @@
 #+FILETAGS: homelab:kubernetes:cloudflare
 
 #+begin_quote
-*Building the lab* — part 8 of 8. ← [[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod (and the subtitle trap)]] ·
-you're at the end.
+*Building the lab* — part 7 of 8. ← [[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]] ·
+[[file:2026-10-28-observability-is-the-part-im-good-at.org][Observability is the part I'm good at →]]
 #+end_quote
 
-I only started worrying about the front door after something else broke and I saw
-how much depended on one box. One Cloudflare tunnel connector and one ingress
-controller, both on the same machine. If either one died, *everything* public went
-dark: the sites, the dashboards, the agent. I hadn't thought about it until then,
-which is usually how I find these things.
-
-This is how I made the edge less fragile: two connectors, two ingresses, and a
-one-line routing change that lets either box answer. I'm writing it up partly
-because I'll forget, and partly because I didn't really understand it until I'd
-done it.
+I only started worrying about the front door after something else broke and I saw how
+much depended on one machine. Everything public — the sites, the dashboards, the agent —
+came in through one Cloudflare tunnel connector on one box. If that process died, or I
+rolled it out badly, the whole lab went dark from the outside. I hadn't thought about it
+until then, which is usually how I find these things.
 
 * The shape of the problem
 
-The lab is two single-node clusters. The "hosting" box runs ArgoCD, ingress-nginx
-and the `cloudflared` connector. The "media" box runs the media stack. Public
-hostnames come in through a Cloudflare Tunnel, and the tunnel's routing pointed at
-exactly one place:
+Everything public arrives through a Cloudflare Tunnel. A tunnel is made of *connectors*:
+little processes that dial *out* to Cloudflare and get handed the traffic for it. I had
+one, running as a NixOS service on the hosting box, and the tunnel's routing pointed at
+that box's ingress:
 
 #+begin_example
 ciceley.cc        -> http://192.168.2.82:32080     # the hosting box's ingress
 bismigel.dev      -> http://192.168.2.82:32080
 ...
-jellyfin.bismigel.dev -> http://192.168.2.81:30096
 #+end_example
 
-So the ingress and the connector were both a single point of failure on `.82`. A
-node failure, a crash, or even a bad rollout of either one took the whole edge
-down with it. Two things I'd been treating as separate turned out to fail
-together.
+One connector, on one machine. If it's down, nothing answers.
 
-* The plan
+* The fix
 
-Once I saw it clearly, the fix was less clever than I expected. Three parts:
+Two parts, less clever than I expected:
 
-1. Run a **second `cloudflared` connector** on the media box. Cloudflare
-   balances a tunnel across all its connectors, so two connectors means the
-   tunnel survives one of them dying. This was the bit I had to go read up on.
-2. Run a **second ingress-nginx** on the media box, on the *same* NodePort
-   (`32080`) as the first.
-3. Point each public host at the connector's **local** ingress
+1. Run a **second connector** on the media box — a second NixOS service off the same
+   tunnel credentials (kept in SOPS).
+2. Point every public hostname at the connector's **local** ingress
    (`http://127.0.0.1:32080`) instead of a hard-coded peer IP.
 
-The last one is the part that made it click, and I didn't trust it until I watched
-it work. A tunnel's ingress rules name a service. With `127.0.0.1`, that service
-is the connector's *own* machine. So both boxes can serve, and Cloudflare picks
-whichever connector is alive. Once I understood that, the rest of the design made
-sense.
+The second part is the one I didn't trust until I watched it work. A tunnel's ingress
+rules name a service, and with `127.0.0.1` that service is the connector's *own* machine.
+So each connector hands traffic to its own box, and Cloudflare picks whichever connector
+is alive. One API call flips every hostname:
 
 #+begin_src yaml
-# tunnel ingress (remote-managed, set via the API)
 ingress:
   - hostname: ciceley.cc
     service: http://127.0.0.1:32080
@@ -66,105 +52,37 @@ ingress:
   - service: http_status:404
 #+end_src
 
-Drawn out, it looks like this. I'm including the part that doesn't work yet,
-because that's the honest part:
+* Where the ingress actually lives
 
-#+begin_src mermaid
-flowchart LR
-  user([Internet]) --> cf[Cloudflare edge]
-  cf --> c82[cloudflared<br/>.82]
-  cf --> c81[cloudflared<br/>.81]
+Here's what I had wrong for a while. My first version stood up a whole second
+ingress-nginx on the other box, because I assumed each connector needed its own. It
+doesn't. There's one cluster, and ingress-nginx lives *in* it. The NodePort it listens on
+(`32080`) is served by kube-proxy on every node, so `127.0.0.1:32080` on either box
+reaches the same ingress. The second box only needed the second connector.
 
-  subgraph b82[".82 - hosting box"]
-    c82 --> i82[ingress-nginx<br/>:32080]
-    i82 --> apps[sites - APIs - agent]
-  end
-
-  subgraph b81[".81 - media box"]
-    c81 --> i81[ingress-nginx<br/>:32080]
-    i81 -.->|no app backends yet| gap["apps still live on .82"]
-  end
-#+end_src
-
-* Doing it (the parts that matter)
-
-**The second connector.** Both boxes run cloudflared as a NixOS service off the
-same tunnel credentials (kept in SOPS). The media box had none, so I just had to
-add the service and the secret. This is the part I was most nervous about, because
-it meant touching the media box, which I've grown protective of.
-
-#+begin_src nix
-services.cloudflared = {
-  enable = true;
-  tunnels."<tunnel-id>" = {
-    credentialsFile = "/root/.cloudflared/<tunnel-id>.json";
-    default = "http_status:404";
-    ingress = { "ciceley.cc" = "http://127.0.0.1:32080"; /* ... */ };
-  };
-};
-sops.secrets."cloudflared_credentials" = {
-  path = "/root/.cloudflared/<tunnel-id>.json";
-  owner = "root"; mode = "0400";
-};
-#+end_src
-
-The tunnel is remote-managed, so the `ingress` map above is just a local fallback.
-The real routing lives in Cloudflare. I keep it roughly in sync anyway, because I
-don't want a surprise if I ever switch it to locally-managed.
-
-**The second ingress.** ingress-nginx is the same Helm chart, so the media
-cluster got its own Application pointing at the same chart and NodePorts. This was
-by far the easiest part, and it showed me why the GitOps setup is nice. The copy
-is a ten-line file, because it's the same manifest with a different `destination`.
-
-#+begin_src yaml
-source:
-  repoURL: https://kubernetes.github.io/ingress-nginx
-  chart: ingress-nginx
-  helm:
-    values: |
-      controller:
-        service:
-          type: NodePort
-          nodePorts: { http: 32080, https: 32443 }
-destination:
-  name: calamansi-intel        # the other cluster
-  namespace: ingress-nginx
-#+end_src
-
-**The routing.** Finally the tunnel config, which flips every public hostname
-from `http://192.168.2.82:32080` to `http://127.0.0.1:32080`. One API call.
-
-#+begin_src shell
-curl -X PUT \
-  "https://api.cloudflare.com/client/v4/accounts/$ACC/cfd_tunnel/$TID/configurations" \
-  -H "Authorization: Bearer $CF" --data @tunnel-cfg.json
-#+end_src
+I tightened two things while I was in here. k3s now binds NodePorts to the **loopback**
+address on every node, so `:32080` is reachable only from the box itself — the tunnel is
+the only way in, and a LAN machine can't reach the ingress at all. That matters because
+the ingress trusts an identity header Cloudflare adds; if the LAN could reach it
+directly, that header could be faked. Now it can't.
 
 * The honest caveat
 
-This makes the *edge* highly available: the tunnel and the ingress survive a
-failure of either. It does **not** make the *apps* highly available, and it took
-me longer than I'd like to admit to notice that. The sites and dashboards still
-run on the hosting box. If that whole node dies, the surviving connector reaches
-the media box's ingress, which has no matching Ingress resource and returns 404.
-The edge being up isn't enough for the apps to be up, and I'd rather write that
-down than let the post suggest something it doesn't do.
-
-To go further I'd put the (stateless) apps on both clusters so either ingress has
-a backend. That's a bigger job, and I'm not sure I want the apps to work the same
-on both clusters yet. It's a decision I want to make on purpose rather than in a
-hurry.
+This makes the *edge* highly available: the tunnel and the connectors survive losing one
+process or one box, and the ingress is managed by the cluster rather than living on a
+single machine. It does **not**, on its own, make everything behind it redundant — that's
+the cluster's job, and a few things (the media stack) are pinned to one box on purpose.
+The edge being up just means the door stays open; what's behind it is a separate story.
 
 * What it buys
 
-For a homelab this is the right place to stop for now. The failures I actually
-expect (a crash-looping connector, a bad ingress rollout, a process dying) now
-mean "one box serves instead of two" instead of "the whole edge is down". The
-tunnel shows two healthy connections, the sites answer, and the front door stops
-being the thing I worry about. For ten lines of YAML and one `curl`, that feels
-like a fair trade. And it's the first time an HA change has felt this small to me.
+For a homelab this is the right place to stop. The failures I actually expect — a
+crash-looping connector, a bad ingress rollout, a process dying — now mean "one box
+serves instead of two" instead of "the whole edge is down". The tunnel shows two healthy
+connections, the sites answer, and the front door stops being the thing I worry about.
+For one extra NixOS service and a `curl`, that's a fair trade.
 
 #+begin_quote
-*Building the lab* — part 8. Previous: [[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod (and the subtitle trap)]].
+*Building the lab* — part 7. Previous: [[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]].
+Next: [[file:2026-10-28-observability-is-the-part-im-good-at.org][Observability is the part I'm good at]].
 #+end_quote
