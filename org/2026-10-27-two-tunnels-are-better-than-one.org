@@ -52,6 +52,22 @@ ingress:
   - service: http_status:404
 #+end_src
 
+Drawn out, it looks like this:
+
+#+begin_src mermaid
+flowchart LR
+  user([Internet]) --> cf[Cloudflare edge]
+  cf --> c82["cloudflared<br/>.82"]
+  cf --> c81["cloudflared<br/>.81"]
+
+  c82 --> i82["127.0.0.1:32080<br/>on .82"]
+  c81 --> i81["127.0.0.1:32080<br/>on .81"]
+
+  i82 --> ing[ingress-nginx<br/>in the cluster]
+  i81 --> ing
+  ing --> apps["sites - APIs - agent"]
+#+end_src
+
 * Where the ingress actually lives
 
 Here's what I had wrong for a while. My first version stood up a whole second
