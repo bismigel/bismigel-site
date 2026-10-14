@@ -1,0 +1,84 @@
+#+TITLE: One cluster, three nodes
+#+DATE: 2026-10-14
+#+FILETAGS: homelab:kubernetes:ha
+
+#+begin_quote
+*Building the lab* — a detour after [[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext]].
+#+end_quote
+
+For a while my lab was two machines, each running its own single-node cluster. I
+told myself it was resilient because each one had a Cloudflare tunnel connector, so
+if one went down the tunnel stayed up. That was wrong, and it took me an
+embarrassingly long time to see why.
+
+The tunnel connector is not the thing serving my sites. The sites run on one box.
+If that box dies, a second connector keeps the *tunnel* open and cheerfully
+returns errors for everything behind it. I had built redundancy for the part that
+rarely fails and none for the part that actually matters.
+
+So I merged the two clusters into one.
+
+* Why three
+
+A single-node cluster is simple but it's one machine. To survive losing a machine
+you need more than two, because etcd — the thing that stores the cluster's state —
+needs a *majority* of its members to agree before it will do anything.
+
+With two members, that majority is two. Lose either one and the cluster stops
+accepting changes. Two is not better than one here; it's worse, because now there
+are two things that can each take the whole lab down. Three is the smallest number
+that tolerates losing one.
+
+So the target was three servers. I had two. The third turned out to be a 2012
+MacBook Pro — the last one you can still open up and swap the drive and memory on.
+A cheap SSD and a wired connection later, it was a fine etcd node. It only holds
+etcd and the control plane; I tainted it so nothing else lands there.
+
+* What actually bit me
+
+Three things, all worth writing down.
+
+- *The firewall.* The join kept timing out. The port etcd uses between members
+  wasn't open on the first machine, so the new node could reach the API but not its
+  peers. I stared at pod logs for a while before thinking to look at the host
+  firewall.
+- *The taint.* I wanted the little Mac to stay cheap, so I kept workloads off it.
+  That was the right call for it, but it also means it can't help *spread* services
+  for redundancy. A control-plane-only node keeps the cluster alive; it doesn't make
+  the apps redundant. Different job.
+- *Storage.* This is the one I expected least. My workloads keep their state on the
+  local disk of the node they run on. So even with three healthy nodes, a pod can't
+  just move to another one — its data isn't there. Three nodes gave me a resilient
+  control plane, not resilient apps. For that you need storage that follows the pod,
+  which is a whole separate project I haven't done yet.
+
+* Making the control plane itself redundant
+
+A cluster that can lose a node is not much use if the thing that *manages* it is
+still a single copy. So the GitOps controller (Argo CD) now runs two replicas of
+its web, repo, and app-set components, and two of its controller (one active, one
+standing by). They spread across the two worker nodes. Losing one node no longer
+takes the deploy pipeline down with it.
+
+The catch: its cache (Redis) is still a single copy. I could make that redundant
+too, but that needs three nodes that can all run it, and I've kept one of mine
+deliberately small. So it stays a known weak point for now.
+
+* What is still a single point of failure
+
+Being honest about this is more useful than pretending:
+
+- the cache behind the GitOps controller (one copy);
+- storage that can't move between nodes;
+- the lab's connection to the internet, and Cloudflare in front of it;
+- and the fact that anyone can reach a lot of this from the local network, which is
+  the next thing I want to fix.
+
+* The lesson
+
+Resilience is a property of a *service*, not of a box or a cable. Adding a second
+tunnel connector didn't make my sites redundant; it made the tunnel redundant. Once
+I could say out loud what I actually wanted to survive — a whole machine going
+away — the right design got a lot easier to see. Three machines agreeing is a
+stranger, more fiddly thing than two machines pretending. It's also the first
+version that's actually true.
