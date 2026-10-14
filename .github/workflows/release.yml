@@ -8,6 +8,13 @@ on:
       - "**.md"
   workflow_dispatch: {}
 
+# Serialize runs: two overlapping runs each open a tag-bump PR from the same base
+# and conflict on the same manifest line, so the auto-merge fails and the deploy
+# stalls. Cancelling the in-progress run keeps only the newest (its tag wins).
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
 
