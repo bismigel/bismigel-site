@@ -1,0 +1,93 @@
+#+TITLE: A MacBook, an AI, and a cluster that stopped falling over
+#+DATE: 2026-10-14
+#+FILETAGS: homelab:learning:ha
+
+#+begin_quote
+*Building the lab* — a companion to [[file:2026-10-14-one-cluster-three-nodes.org][One cluster, three nodes]].
+#+end_quote
+
+I am not smart. I want to say that plainly, because a lot of homelab writing
+assumes you already know the thing it's teaching. I don't. I learn by breaking
+things, watching someone fix them, and asking questions I'm embarrassed to ask.
+
+This is the story of how I got a thirteen-year-old MacBook into my cluster, and
+how I let an AI do most of the actual work.
+
+* The MacBook
+
+I had two small machines running my lab. I wanted a third, because I'd read that
+three is the smallest number where a cluster can lose a machine and keep going.
+I didn't want to buy anything.
+
+Under a pile of cables I had a 2012 13" MacBook Pro. It's the last one Apple made
+that you can still open with a screwdriver — the drive and the memory come out.
+I'd already put an SSD in it years ago. I plugged in an Ethernet cable (it has a
+real network port, which is the whole point) and closed the lid.
+
+Now it just needed an operating system that wasn't macOS.
+
+* Letting the AI drive
+
+Here is the honest part. I did not want to partition a disk by hand, install
+NixOS, and then persuade a cluster to accept it. That's three things I'd mess up
+in one night.
+
+So I did it with an AI assistant instead. It's a helper that runs on my own
+machine and can do things for me — a "clanker," I call it, affectionately. I gave
+it the SSH key to the MacBook and a simple instruction: install NixOS on it,
+matching how my other two boxes are set up, and make it a third node.
+
+It asked me to explain, so I did. Then it went to work.
+
+The whole thing happened in the terminal, and from my side it looked like a lot
+of text going by, plus me occasionally typing "go" or "wait, why." It wiped the
+Mac's disk. It installed NixOS over SSH, using a trick where it boots a tiny
+system into memory first. It relabelled the machine, gave it a fixed address, and
+told it how to join the other two.
+
+I watched. I understood maybe a third of it.
+
+* The parts that scared me
+
+- *It erased the disk.* I said that was fine, and then held my breath anyway.
+- *A join can fail quietly.* The new machine kept trying to join and kept timing
+  out. The AI went looking, found that the firewall on the first machine wasn't
+  letting the cluster's "talking" port through, opened it, and it joined. I would
+  have stared at that forever.
+- *It deleted a cluster member.* At one point it removed the Mac from the cluster
+  on purpose so it could reinstall it cleanly. That's the kind of sentence that
+  makes me nervous, but it explained why: a two-machine cluster is actually
+  *worse* than one, because both have to be alive for anything to work.
+
+* What I actually took away
+
+None of this stuck the first time. But some of it did, eventually:
+
+- *Two is worse than one.* A cluster stores its memory across machines, and it
+  needs a majority to agree. With two, losing either one stops everything. With
+  three, you can lose one. That's the whole reason to add a box at all.
+- *The "backup" wasn't doing anything.* I trusted a nightly job to copy my most
+  important keys somewhere safe. When the AI checked, it was failing every time —
+  a file it needed was missing. I had a backup I believed in that didn't exist.
+  That one kept me up a little.
+- *"Local" is a real thing to a computer.* Some apps are happy with no password,
+  but only if the request comes from the local network. The moment it comes from
+  the internet, they demand a login. That's why the same app behaved differently
+  depending on how I reached it, and I never would have guessed it.
+- *I can ask dumb questions.* I asked a lot. "What is etcd." "Why did it break."
+  "Is this going to delete my files." None of them were dumb.
+
+* Where it ended up
+
+The MacBook is a quiet little member of a three-machine cluster now. It does
+almost nothing — it just helps the others agree — but it's the difference between
+"if one machine dies everything stops" and "if one machine dies, shrug."
+
+I don't fully understand it. I couldn't rebuild it from scratch by memory. But
+I can *read* it now, and that's new.
+
+#+begin_quote
+If you're where I was — two machines, no confidence, afraid to type the wrong
+thing — get a third one, and get a patient robot to walk you through it. And
+before you trust a backup, watch it succeed at least once. Mine hadn't.
+#+end_quote
