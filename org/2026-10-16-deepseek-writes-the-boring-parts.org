@@ -3,8 +3,8 @@
 #+FILETAGS: ai:homelab:agents
 
 #+begin_quote
-*Building the lab* — part 5 of 8. ← [[file:2026-10-14-one-cluster-three-nodes.org][One cluster, three nodes]] ·
-[[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod →]]
+*Building the lab — Part 5 of 8.* ← [[file:2026-10-14-one-cluster-three-nodes.org][One cluster, three nodes]]
+Next: [[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]]
 #+end_quote
 
 For a long time, I did not let a model write code for me. I think I felt that I was
@@ -113,7 +113,10 @@ edge of what it can see. That is also my worry about myself. The answer is the s
 both. Keep the things that cannot be undone behind a human. Let everything else move
 fast.
 
+So the lab ran, and a model wrote a good part of it. Then I tried to actually watch
+something on it — and hit a wall.
+
 #+begin_quote
-*Building the lab* — part 5. Previous: [[file:2026-10-14-one-cluster-three-nodes.org][One cluster, three nodes]].
+*Building the lab — Part 5 of 8.* Previous: [[file:2026-10-14-one-cluster-three-nodes.org][One cluster, three nodes]].
 Next: [[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]].
 #+end_quote

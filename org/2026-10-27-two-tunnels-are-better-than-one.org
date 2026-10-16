@@ -3,8 +3,8 @@
 #+FILETAGS: homelab:kubernetes:cloudflare
 
 #+begin_quote
-*Building the lab* — part 7 of 8. ← [[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]] ·
-[[file:2026-10-28-observability-is-the-part-im-good-at.org][Observability is the part I'm good at →]]
+*Building the lab — Part 7 of 8.* ← [[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]]
+Next: [[file:2026-10-28-observability-is-the-part-im-good-at.org][Observability is the part I'm good at]]
 #+end_quote
 
 I only started to worry about the front door after something else broke. Then I saw how
@@ -98,7 +98,10 @@ serves instead of two", instead of "the whole edge is down". The tunnel shows tw
 healthy connections. The sites answer. And the front door stops being the thing I worry
 about. For one extra service and one =curl=, that is a fair trade.
 
+With the edge solid, I could relax. But a lab you cannot watch is a lab you cannot
+trust. So the last part is about the thing I am actually good at.
+
 #+begin_quote
-*Building the lab* — part 7. Previous: [[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]].
+*Building the lab — Part 7 of 8.* Previous: [[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]].
 Next: [[file:2026-10-28-observability-is-the-part-im-good-at.org][Observability is the part I'm good at]].
 #+end_quote
