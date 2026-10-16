@@ -3,8 +3,8 @@
 #+FILETAGS: homelab:kubernetes:ha
 
 #+begin_quote
-*Building the lab* — part 4 of 8. ← [[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext]] ·
-[[file:2026-10-16-deepseek-writes-the-boring-parts.org][Where AI fits in the lab →]]
+*Building the lab — Part 4 of 8.* ← [[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext]]
+Next: [[file:2026-10-16-deepseek-writes-the-boring-parts.org][Where AI fits in the lab]]
 #+end_quote
 
 For a while, my lab was two machines. Each one ran its own cluster of one machine. I
@@ -71,7 +71,10 @@ wanted to survive — a whole machine going away — the design became much clea
 machines that agree is stranger and harder than two machines that pretend. But it is
 also the first version that is true.
 
+The cluster was finally standing on three legs. With the hard part done, I could start
+using it. And I could let a model take over the boring parts.
+
 #+begin_quote
-*Building the lab* — part 4. Previous: [[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext]].
+*Building the lab — Part 4 of 8.* Previous: [[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext]].
 Next: [[file:2026-10-16-deepseek-writes-the-boring-parts.org][Where AI fits in the lab]].
 #+end_quote

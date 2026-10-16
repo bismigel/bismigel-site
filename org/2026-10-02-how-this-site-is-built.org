@@ -3,8 +3,8 @@
 #+FILETAGS: hugo:emacs:ci
 
 #+begin_quote
-*Building the lab* — part 2 of 8. ← [[file:2026-09-15-homelab-design.org][The design of the homelab]] ·
-[[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext →]]
+*Building the lab — Part 2 of 8.* ← [[file:2026-09-15-homelab-design.org][The design of the homelab]]
+Next: [[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext]]
 #+end_quote
 
 I wanted a place to write. I did not want to run a database, or learn a whole content
@@ -71,7 +71,10 @@ read it again before I touch it.
 I like that each tool does one job. When something breaks, I can usually tell *where*
 it broke. That has helped me more than anything clever.
 
+So I had a place to write. Now the real work could start. The first thing that beat me
+was secrets.
+
 #+begin_quote
-*Building the lab* — part 2. Previous: [[file:2026-09-15-homelab-design.org][The design of the homelab]].
+*Building the lab — Part 2 of 8.* Previous: [[file:2026-09-15-homelab-design.org][The design of the homelab]].
 Next: [[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext]].
 #+end_quote

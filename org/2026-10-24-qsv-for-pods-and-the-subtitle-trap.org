@@ -3,8 +3,8 @@
 #+FILETAGS: homelab:media:kubernetes:jellyfin
 
 #+begin_quote
-*Building the lab* — part 6 of 8. ← [[file:2026-10-16-deepseek-writes-the-boring-parts.org][Where AI fits in the lab]] ·
-[[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one →]]
+*Building the lab — Part 6 of 8.* ← [[file:2026-10-16-deepseek-writes-the-boring-parts.org][Where AI fits in the lab]]
+Next: [[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one]]
 #+end_quote
 
 Two things broke my media box in the same week. For a while, I did not see that they
@@ -204,7 +204,9 @@ So both halves ended the same way. A device that was there but not allowed. And 
 subtitle that was there but could not be shown. Each one was fixed by finding the one
 gate that mattered.
 
+The media finally worked. So, naturally, I started worrying about the front door.
+
 #+begin_quote
-*Building the lab* — part 6. Previous: [[file:2026-10-16-deepseek-writes-the-boring-parts.org][Where AI fits in the lab]].
+*Building the lab — Part 6 of 8.* Previous: [[file:2026-10-16-deepseek-writes-the-boring-parts.org][Where AI fits in the lab]].
 Next: [[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one]].
 #+end_quote
