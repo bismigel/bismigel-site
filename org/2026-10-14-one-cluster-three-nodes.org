@@ -7,65 +7,69 @@
 [[file:2026-10-16-deepseek-writes-the-boring-parts.org][Where AI fits in the lab →]]
 #+end_quote
 
-For a while my lab was two machines, each running its own single-node cluster. I told
-myself it was resilient because each one had a Cloudflare connector, so if one went
-down the tunnel stayed up. That was wrong, and it took me an embarrassingly long time
-to see why.
+For a while, my lab was two machines. Each one ran its own cluster of one machine. I
+told myself it was safe, because each machine had its own Cloudflare connector. So if
+one machine went down, the tunnel would stay up.
 
-The connector isn't the thing serving my sites. The sites run on one box. If that box
-dies, the second connector keeps the *tunnel* open and cheerfully returns errors for
-everything behind it. I'd built redundancy for the part that rarely fails and none for
-the part that matters. So I merged the two clusters into one.
+That was wrong. And it took me a long time to see why.
+
+The connector is not the thing that serves my sites. My sites run on one machine. If
+that machine dies, the second connector keeps the *tunnel* open. But it returns errors
+for everything behind it. I had added safety to the part that rarely breaks. I had
+added none to the part that matters. So I joined the two clusters into one.
 
 * Why three
 
-A single-node cluster is one machine. To survive losing a machine you need more than
-two, because etcd — the thing that stores the cluster's state — needs a *majority* of
-its members to agree before it will do anything. With two, that majority is two: lose
-either one and the cluster stops. Three is the smallest number that tolerates losing
-one.
+A cluster of one machine is just one machine. To survive losing a machine, you need
+more than two. Why? The cluster keeps its memory in a place called etcd. To change
+anything, most of the machines must agree. With two machines, you need both. So if one
+dies, the cluster stops. Three is the smallest number that can lose one machine and
+keep going.
 
-I had two machines. The third turned out to be a 2012 MacBook Pro — the last one Apple
-made that you can still open with a screwdriver. A cheap SSD and an Ethernet cable
-later, it was a fine third vote. It holds only etcd and the control plane; I tainted it
-so nothing else lands there.
+I had two machines. The third turned out to be a 2012 MacBook Pro. It is the last
+MacBook you can open with a screwdriver. I added a cheap SSD and an Ethernet cable. It
+became a good third vote. It holds only etcd and the control plane. I marked it so
+that nothing else lands on it.
 
 * Letting the AI drive
 
-The honest part: I did not want to partition a disk by hand, install NixOS, and persuade
-a cluster to accept it — three things I'd mess up in one night. So I had a local AI
-assistant do it. I gave it the MacBook's SSH key and a one-line instruction: install
-NixOS, match the other two, join the cluster. It wiped the disk, installed NixOS over
-SSH, gave the machine a fixed address, and joined it. I watched and understood maybe a
-third of it.
+Here is the honest part. I did not want to partition a disk by hand. I did not want to
+install NixOS and then make a cluster accept it. That is three things to get wrong in
+one night. So I asked an AI assistant to do it for me. I gave it the MacBook's SSH
+key. My instruction was one line: install NixOS, match the other two machines, and
+join the cluster. It erased the disk. It installed NixOS over SSH. It gave the machine
+a fixed address. And it joined the cluster. I watched. I understood maybe a third of
+it.
 
 * What bit me
 
-- *The firewall.* The join kept timing out. The port etcd uses between members wasn't
-  open on the other machines, so the new node could reach the API but not its peers. I
-  stared at pod logs before thinking to look at the host firewall.
-- *The taint.* Keeping the MacBook cheap was right for it, but it also means it can't
-  help *spread* services for redundancy. A control-plane-only node keeps the cluster
-  alive; it doesn't make the apps redundant. Different job.
-- *Storage.* The one I expected least. My workloads keep their state on the local disk
-  of the node they run on, so even with three healthy nodes a pod can't just move — its
-  data isn't there. Three nodes gave me a resilient control plane, not resilient apps.
-  (I've since added distributed storage for the parts that need it.)
+- *The firewall.* The join kept timing out. The port that etcd uses between machines
+  was not open on the other machines. The new node could reach the API, but not its
+  peers. I stared at pod logs for a long time before I thought to look at the machine
+  firewall.
+- *The mark.* Keeping the MacBook small was right for it. But it also means it cannot
+  help *spread* apps for safety. A node that only runs the control plane keeps the
+  cluster alive. It does not make the apps safe. That is a different job.
+- *Storage.* I expected this one the least. My apps keep their data on the local disk
+  of the machine they run on. So even with three healthy machines, a pod cannot just
+  move. Its data is not there. Three machines gave me a strong control plane, not
+  strong apps. Later, I added shared storage for the parts that need it.
 
-* Making the control plane itself redundant
+* Making the control plane safe too
 
-The cluster can survive a node, but the thing that *manages* it shouldn't be a single
-copy. So the GitOps controller now runs two replicas each of its web, repo, and app-set
-components, and two of its controller (one active, one standing by), spread across the
-two worker boxes. Its cache is still a single copy — a known weak point I haven't fixed.
+The cluster can survive losing a machine. But the thing that *manages* the cluster
+should not be a single copy. So the GitOps controller now runs two copies of its web,
+repo, and app-set parts. It also runs two copies of its controller (one active, one
+waiting). One part is still a single copy: its cache. That is a weak point I have not
+fixed.
 
 * The lesson
 
-Resilience is a property of a *service*, not of a box or a cable. Adding a second tunnel
-connector didn't make my sites redundant; it made the tunnel redundant. Once I could say
-out loud what I actually wanted to survive — a whole machine going away — the right
-design got a lot easier to see. Three machines agreeing is a stranger, more fiddly thing
-than two machines pretending. It's also the first version that's actually true.
+Being safe is a property of a *service*, not of a box or a cable. A second tunnel
+connector did not make my sites safe. It made the tunnel safe. Once I could say what I
+wanted to survive — a whole machine going away — the design became much clearer. Three
+machines that agree is stranger and harder than two machines that pretend. But it is
+also the first version that is true.
 
 #+begin_quote
 *Building the lab* — part 4. Previous: [[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext]].

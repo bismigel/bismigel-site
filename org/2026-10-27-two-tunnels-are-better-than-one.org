@@ -1,4 +1,4 @@
-#+TITLE: Two tunnels are better than one: making the edge HA
+#+TITLE: Two tunnels are better than one: making the edge safe
 #+DATE: 2026-10-27
 #+FILETAGS: homelab:kubernetes:cloudflare
 
@@ -7,18 +7,18 @@
 [[file:2026-10-28-observability-is-the-part-im-good-at.org][Observability is the part I'm good at →]]
 #+end_quote
 
-I only started worrying about the front door after something else broke and I saw how
+I only started to worry about the front door after something else broke. Then I saw how
 much depended on one machine. Everything public — the sites, the dashboards, the agent —
-came in through one Cloudflare tunnel connector on one box. If that process died, or I
-rolled it out badly, the whole lab went dark from the outside. I hadn't thought about it
-until then, which is usually how I find these things.
+came in through one Cloudflare connector, on one box. If that process died, or if I
+rolled it out badly, the whole lab went dark from the outside. I had not thought about
+it until then. That is usually how I find these things.
 
 * The shape of the problem
 
-Everything public arrives through a Cloudflare Tunnel. A tunnel is made of *connectors*:
-little processes that dial *out* to Cloudflare and get handed the traffic for it. I had
-one, running as a NixOS service on the hosting box, and the tunnel's routing pointed at
-that box's ingress:
+Everything public arrives through a Cloudflare Tunnel. A tunnel is made of *connectors*.
+A connector is a small process that dials *out* to Cloudflare and gets handed the
+traffic for the tunnel. I had one, running as a service on the hosting box. And the
+tunnel's routing pointed at that box's ingress:
 
 #+begin_example
 ciceley.cc        -> http://192.168.2.82:32080     # the hosting box's ingress
@@ -26,21 +26,21 @@ bismigel.dev      -> http://192.168.2.82:32080
 ...
 #+end_example
 
-One connector, on one machine. If it's down, nothing answers.
+One connector, on one machine. If it is down, nothing answers.
 
 * The fix
 
-Two parts, less clever than I expected:
+Two parts, and less clever than I expected:
 
-1. Run a **second connector** on the media box — a second NixOS service off the same
+1. Run a **second connector** on the media box. It is a second service, using the same
    tunnel credentials (kept in SOPS).
 2. Point every public hostname at the connector's **local** ingress
-   (`http://127.0.0.1:32080`) instead of a hard-coded peer IP.
+   (=http://127.0.0.1:32080=), instead of at the other box's IP.
 
-The second part is the one I didn't trust until I watched it work. A tunnel's ingress
-rules name a service, and with `127.0.0.1` that service is the connector's *own* machine.
-So each connector hands traffic to its own box, and Cloudflare picks whichever connector
-is alive. One API call flips every hostname:
+Part two is the one I did not trust until I watched it work. A tunnel's rules name a
+service. With =127.0.0.1=, that service is the connector's *own* machine. So each
+connector hands traffic to its own box. And Cloudflare picks whichever connector is
+alive. One API call changes every hostname:
 
 #+begin_src yaml
 ingress:
@@ -68,35 +68,35 @@ flowchart LR
   ing --> apps["sites - APIs - agent"]
 #+end_src
 
-* Where the ingress actually lives
+* Where the ingress really lives
 
-Here's what I had wrong for a while. My first version stood up a whole second
-ingress-nginx on the other box, because I assumed each connector needed its own. It
-doesn't. There's one cluster, and ingress-nginx lives *in* it. The NodePort it listens on
-(`32080`) is served by kube-proxy on every node, so `127.0.0.1:32080` on either box
-reaches the same ingress. The second box only needed the second connector.
+Here is what I had wrong for a while. My first version stood up a whole second
+ingress-nginx on the other box. I thought each connector needed its own. It does not.
+There is one cluster, and ingress-nginx lives *in* it. The port it listens on (32080) is
+served by the cluster on every node. So =127.0.0.1:32080= on either box reaches the same
+ingress. The second box only needed the second connector.
 
-I tightened two things while I was in here. k3s now binds NodePorts to the **loopback**
-address on every node, so `:32080` is reachable only from the box itself — the tunnel is
-the only way in, and a LAN machine can't reach the ingress at all. That matters because
-the ingress trusts an identity header Cloudflare adds; if the LAN could reach it
-directly, that header could be faked. Now it can't.
+I also locked the ingress down while I was in here. k3s now binds its ports to the
+*loopback* address on every node. So the port is reachable only from the box itself. The
+tunnel is the only way in. A machine on the LAN cannot reach the ingress at all. That
+matters, because the ingress trusts an identity header that Cloudflare adds. If the LAN
+could reach it directly, someone could fake that header. Now it cannot.
 
-* The honest caveat
+* The honest catch
 
-This makes the *edge* highly available: the tunnel and the connectors survive losing one
-process or one box, and the ingress is managed by the cluster rather than living on a
-single machine. It does **not**, on its own, make everything behind it redundant — that's
-the cluster's job, and a few things (the media stack) are pinned to one box on purpose.
-The edge being up just means the door stays open; what's behind it is a separate story.
+This makes the *edge* safe. The tunnel and the connectors now survive losing one process
+or one box. The ingress is managed by the cluster, not by one machine. But it does
+**not** make everything behind it safe on its own. That is the cluster's job. And a few
+things (the media apps) are pinned to one box on purpose. The edge being up only means
+the door stays open. What is behind the door is a different story.
 
 * What it buys
 
-For a homelab this is the right place to stop. The failures I actually expect — a
-crash-looping connector, a bad ingress rollout, a process dying — now mean "one box
-serves instead of two" instead of "the whole edge is down". The tunnel shows two healthy
-connections, the sites answer, and the front door stops being the thing I worry about.
-For one extra NixOS service and a `curl`, that's a fair trade.
+For a homelab, this is the right place to stop. The failures I actually expect — a
+connector that crashes, a bad ingress update, a process that dies — now mean "one box
+serves instead of two", instead of "the whole edge is down". The tunnel shows two
+healthy connections. The sites answer. And the front door stops being the thing I worry
+about. For one extra service and one =curl=, that is a fair trade.
 
 #+begin_quote
 *Building the lab* — part 7. Previous: [[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]].

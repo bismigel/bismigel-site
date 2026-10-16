@@ -4,102 +4,98 @@
 
 #+begin_quote
 *Building the lab* — part 8 of 8. ← [[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one]] ·
-you're at the end.
+you are at the end.
 #+end_quote
 
-Most of this lab is me learning in public. I write about the parts I barely
-understand, because that's where the useful stories are. This one is the exception.
+Most of this lab is me learning in public. I write about the parts I barely understand,
+because that is where the useful stories are. This post is different.
 
-Observability is what I do for a living. Of everything in this lab, it's the piece
-I'm not faking. So when I say the monitoring here is better than it strictly needs
-to be, take it as a small brag — because it is one.
+Observability is what I do for a living. Of everything in this lab, it is the one part I
+am not faking. So when I say the monitoring here is better than it needs to be, take it
+as a small brag. It is one.
 
 * Most homelabs have a dashboard they open twice a year
 
-The usual pattern goes like this. You install Grafana because it looks good in a
-screenshot. You wire up one dashboard. And then you never look at it again. It's
-decoration. Nothing it shows is connected to anything that would tell *you* when
-something is wrong, so you find out the lab broke the moment you try to use it.
+The usual story goes like this. You install Grafana because it looks good in a
+screenshot. You make one dashboard. Then you never look at it again. It is decoration.
+Nothing on it is connected to anything that would tell *you* when something is wrong. So
+you find out the lab broke the moment you try to use it.
 
-That's the mistake I refuse to make, because it's the mistake I spend my working
-life cleaning up after.
+That is the mistake I refuse to make. It is also the mistake I spend my working life
+cleaning up after.
 
-* If it isn't in git, it doesn't exist
+* If it is not in git, it does not exist
 
-The rule for the monitoring stack is the same as the rule for everything else: it's
-declared as files in the repo, and it rebuilds itself from those files on every
-start. Datasources, the dashboard, the alert rules, and where the alerts go — all
-of it. I have never once logged into Grafana to *build* something. I only log in to
-look.
+The rule for the monitoring is the same as the rule for everything else. It is written
+as files in the repo. And it rebuilds itself from those files every time it starts.
+Datasources, the dashboard, the alert rules, and where the alerts go — all of it. I have
+never once logged into Grafana to *build* something. I only log in to look.
 
-That sounds fussy. It's the whole trick. A dashboard you hand-built is one disk
-failure away from gone, and it drifts the first time someone clicks the wrong
-thing. A dashboard in git is a code review away from correct, and it survives the
-machine it happens to be running on. This lab is supposed to be nuke-proof.
-Monitoring is no exception.
+That sounds fussy. It is the whole trick. A dashboard you built by hand is one disk
+failure away from gone. And it drifts the first time someone clicks the wrong thing. A
+dashboard in git is a review away from correct. And it survives the machine it happens to
+be running on. This lab is supposed to be nuke-proof. Monitoring is no exception.
 
-* The stack, briefly
+* The stack, quickly
 
-- *Prometheus* does the collecting. It scrapes the standard resource metrics from
-  every host, and the cluster's own object metrics from inside Kubernetes — how
-  many pods are running, how many storage volumes are actually healthy.
+- *Prometheus* does the collecting. It reads the standard machine metrics from every
+  host. And it reads the cluster's own numbers from inside Kubernetes — how many pods are
+  running, how many storage volumes are healthy.
 - *Grafana* is the window: one page, called Homelab Overview.
-- *Alertmanager* is the part that actually reaches me. It decides which alerts
-  deserve a message and forwards them to a Telegram bot. No email I'll ignore and
-  no dashboard I have to remember to open.
+- *Alertmanager* is the part that reaches me. It decides which alerts deserve a message,
+  and sends them to a Telegram bot. No email I will ignore, and no dashboard I have to
+  remember to open.
 
-* I only alert on what I'd act on
+* I only alert on what I would act on
 
-Here's where the day job pays off. The beginner move is to alert on everything, get
-buried, and start ignoring alerts — which is strictly worse than having none. So
-the list stays short, boring, and short. Each one is something I would actually get
-out of bed for:
+Here is where my day job helps. The beginner move is to alert on everything. Then you get
+buried, and you start ignoring alerts. That is worse than having none. So my list stays
+short, boring, and short. Each alert is something I would actually get out of bed for:
 
-- a host has stopped answering;
-- a thing I *meant* to be watching has vanished, so I stop trusting the numbers I
-  can still see;
-- a disk is filling up, caught before it's full;
+- a machine has stopped answering;
+- a thing I *meant* to watch has vanished, so I stop trusting the numbers I can still
+  see;
+- a disk is filling up, caught before it is full;
 - memory has been pinned for a while — not a spike, a trend.
 
-Four alerts. Every one of them means "do something." I'd rather have four I believe
-than forty I've muted.
+Four alerts. Every one means "do something". I would rather have four that I believe than
+forty that I have muted.
 
 * The brag: my backups tell on themselves
 
-This is the part I'm proudest of, and it comes straight out of the cluster post —
-where I discovered my "backup" had been failing every night for who knows how long.
-I had a backup I believed in that simply didn't exist. The only reason I know that
-story is that I went looking.
+This is the part I am proudest of. And it comes straight out of the cluster post. There, I
+found out my "backup" had been failing every night for who knows how long. I had a backup
+I believed in that simply did not exist. The only reason I know that story is that I went
+looking.
 
-So now the backups rat themselves out. Each one is a scheduled job, and if it
-fails, the operating system itself fires an alert into the same pipeline as
-everything else. A dead backup shows up in the same place, wearing the same shape,
-as a dead host. I don't have to remember to check. The lab tells me.
+So now the backups report on themselves. Each backup is a scheduled job. If it fails, the
+operating system itself sends an alert into the same pipeline as everything else. A dead
+backup shows up in the same place, with the same shape, as a dead machine. I do not have
+to remember to check. The lab tells me.
 
-The first time I tested it end to end — a deliberate failure, landing in Telegram a
-few seconds later — I grinned like an idiot. That's the difference between a lab
-that merely *has* monitoring and a lab I actually trust.
+The first time I tested it, end to end — a deliberate failure, landing in Telegram a few
+seconds later — I grinned like an idiot. That is the difference between a lab that merely
+*has* monitoring and a lab I actually trust.
 
 * One screen
 
-Homelab Overview is deliberately a single screen. Across the top, the numbers I
-check in a glance: nodes answering, alerts firing, pods running, volumes healthy,
-container restarts in the last hour. Below that, the trends per host — CPU, memory,
-disk, load. At the bottom, a live table of anything currently firing.
+Homelab Overview is deliberately a single screen. Across the top are the numbers I check
+in a glance: machines answering, alerts firing, pods running, volumes healthy, restarts
+in the last hour. Below that, the trends per machine: CPU, memory, disk, load. At the
+bottom, a live table of anything currently firing.
 
-That's all of it. No wall of graphs nobody reads. If the top row is green and the
-bottom table is empty, the lab is fine and I can walk away.
+That is all of it. No wall of graphs that nobody reads. If the top row is green and the
+bottom table is empty, the lab is fine, and I can walk away.
 
-* What I'd tell you
+* What I would tell you
 
-If observability isn't your thing, steal the shape of this rather than the tools.
-Put your monitoring config in git. Alert on few things. Send the alerts somewhere
-you'll actually see them. And watch your backups succeed at least once — or better,
-make them scream when they don't.
+If observability is not your thing, steal the shape of this, not the tools. Put your
+monitoring config in git. Alert on few things. Send the alerts somewhere you will
+actually see them. And watch your backups succeed at least once — or better, make them
+scream when they do not.
 
-I'm not smart about most of this lab. But this part I know, and it shows.
+I am not smart about most of this lab. But this part I know, and it shows.
 
 #+begin_quote
-*Building the lab* — part 8. Previous:
-[[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one]].
+*Building the lab* — part 8. Previous: [[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one]].
 #+end_quote

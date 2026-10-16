@@ -7,103 +7,111 @@
 [[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod →]]
 #+end_quote
 
-I held off letting a model write code for longer than I should have. I think I felt
-like I was supposed to be against it. But a lot of what holds this lab together is
-genuinely boring — NixOS modules, Kubernetes manifests, the same small patterns in
-slightly different shapes — and I was spending evenings retyping things I'd already
-figured out. So I let a model do it, then spent a while finding where that was a good
-idea and where it wasn't.
+For a long time, I did not let a model write code for me. I think I felt that I was
+supposed to be against it.
 
-The same lesson showed up one level up, later, when I put an *agent* inside the lab.
-This is both halves.
+But a lot of this lab is boring work. There are NixOS modules. There are Kubernetes
+files. There are the same small patterns, again and again. I was spending my evenings
+retyping things I had already worked out. So I let a model do some of it. Then I spent
+time finding out where that was a good idea, and where it was not.
 
-* Where the model earns its keep
+Later, I saw the same lesson again, one step up, when I put an *agent* inside the lab.
+This post is both parts.
 
-The rule I settled on: if I can describe the shape of the answer in one sentence, I
-let the model write it. A new secret that copies an existing one. A Deployment with the
-same labels and probes as the rest. The tenth version of a shell script. Those aren't
-problems to solve, they're typing, and I've stopped feeling I learn anything retyping
-them.
+* Where the model helps
 
-Two things surprised me with how useful they were. *Cross-language translation*: I can
-read a Kubernetes manifest but don't remember every field name, and I definitely don't
-remember NixOS option names. Having something that does turns a guess into a build error
-five minutes later instead of a subtle bug. And *the first draft of anything boring*: I'll
-happily rewrite a script, but I hate writing the first one.
+My rule is simple. If I can describe the answer in one sentence, I let the model write
+it. A new secret that copies an old one. A Deployment with the same labels and checks
+as the others. The tenth version of a shell script. These are not problems to solve.
+They are typing. And I do not learn much from typing them again.
 
-* Where it doesn't
+Two things surprised me, because they helped a lot. The first is *translation between
+languages*. I can read a Kubernetes file. But I do not remember every field name. And I
+really do not remember NixOS option names. A model does. So instead of making a guess,
+I get a build error five minutes later. That is a cheap way to find out I was wrong.
+The second is *the first draft of anything boring*. I am happy to rewrite a script. I
+hate writing the first version. So I ask for a first draft, I read it, and I fix the
+parts that matter.
 
-It's confidently wrong about anything recent or unusual, and my whole lab is unusual.
-It'll invent a Helm value, assume a default that changed two versions ago, or write a
-manifest that looks fine but quietly does the wrong thing for *this* cluster, because it
-has no idea what this cluster is. All three have happened to me.
+* Where it does not help
 
-So my line is: it drafts, I decide. Nothing reaches the cluster without me reading it,
-and anything touching secrets, the edge, or the shape of the data is mine. I think of it
-as a fast, tireless, slightly overconfident junior.
+The model is confidently wrong about anything new or unusual. And my whole lab is
+unusual. It will invent a Helm value. It will assume a setting that changed two
+versions ago. Or it will write a file that looks fine, but quietly does the wrong thing
+for *this* cluster — because it has no idea what this cluster is. All three have
+happened to me.
+
+So my rule is: it writes a draft, I decide. Nothing goes to the cluster before I read
+it. Anything about secrets, the edge, or the shape of my data is my job. I think of the
+model as a fast, tireless, slightly overconfident junior.
 
 * Keeping the keys out
 
-One rule I won't bend: the model never sees a secret. It doesn't need the value of
-anything to write code that *references* it. Same for prompts — a pasted config, a token
-in an error message — placeholder, never the real thing. I caught myself pasting a real
-value once, and once is too many.
+One rule I will not bend: the model never sees a secret. It does not need the value of
+anything to write code that *uses* it. The same goes for my prompts. A config I paste,
+or a token inside an error message, is always a placeholder. Never the real thing. I
+caught myself pasting a real value once. Once is too many.
 
-* Putting an agent in the cluster
+* An agent inside the cluster
 
-Once the lab was reproducible, there was one idea I kept circling: stop being the only
-one who can run it. Put an agent inside the cluster, give it my tools, let it do the
-small work. Same model underneath, same lesson one level up.
+Once the lab could rebuild itself, one idea kept coming back. I did not want to be the
+only person who could run it. So I put an agent inside the cluster. I gave it my tools.
+And I let it do the small work. Same model underneath. Same lesson, one step up.
 
-It's one workload, deployed like everything else. You reach it two ways, both behind the
-same login check: a web dashboard behind Cloudflare Access, and a Telegram bot that only
-answers accounts I've added by hand. Nobody else gets a reply.
+It is one workload, built like everything else. You reach it in two ways. Both are
+behind the same login check. There is a web page behind Cloudflare Access. And there is
+a Telegram bot that only answers accounts I added by hand. Nobody else gets a reply.
 
-What makes it useful isn't the chat. The box it runs on isn't a sandbox — it has a shell
-with `kubectl`, `gh`, `git`, `helm`, `jq`, and my own notes. So when I ask something, it
-doesn't summarize a log I pasted; it goes and looks. That was the moment it stopped being
-a toy. It's also the danger. The cleaner way to give it room is MCP servers, which hand
-it a defined set of operations instead of a whole shell. I prefer them not because
-they're more capable — a shell with `kubectl` can do more — but because a defined tool is
-something I can name, think about, and block. A shell is a list with no end.
+The useful part is not the chat. The machine it runs on is not a sandbox. It has a
+shell, with =kubectl=, =gh=, =git=, =helm=, =jq=, and my own notes. So when I ask it
+something, it does not summarize a log I pasted. It goes and looks. That is when it
+stopped being a toy. It is also the danger.
+
+There is a cleaner way to give it room: MCP servers. They give it a clear list of
+actions, instead of a whole shell. I prefer them. Not because they can do more — a
+shell with =kubectl= can do more. But because I can name each action, think about it,
+and block it. A shell is a list with no end.
 
 * The leash
 
-Full autonomy is the easy setting and, I'm now sure, the wrong one. I want two things
-from something with the run of the place: it shouldn't be able to make a change I'd be
-embarrassed by, and I should still be able to send it off without watching it. Three
-rules, plus limits it can't talk its way around:
+Full freedom is the easy setting. I am now sure it is the wrong one. I want two things
+from something with the run of the place. First, it should not be able to make a change
+that would embarrass me. Second, I should be able to send it off without watching it.
 
-- *It proposes, it doesn't commit.* It works on branches and opens pull requests, and
-  the main branch is protected, so that isn't just a suggestion. The review is the whole
+So I gave it three rules, and a few limits it cannot talk its way around:
+
+- *It suggests, it does not commit.* It works on branches and opens pull requests. The
+  main branch is protected. So that is not just a suggestion. The review is the whole
   point.
-- *It doesn't get the Cloudflare token.* Cloudflare is the one thing that can expose the
-  house, so the agent reaches it through a small proxy that holds the token and forwards
-  *reads*, answering every write with a flat no. It can't change the edge, and it can't
-  leak a token it never had.
-- *Secrets stay in a store* and arrive as environment variables, so the agent sees the
-  *name* of a credential and nothing more.
+- *It does not get the Cloudflare token.* Cloudflare is the one thing that can expose
+  my house. So the agent reaches it through a small proxy. The proxy holds the token,
+  and only passes *reads*. Every write gets a flat no. It cannot change the edge, and
+  it cannot leak a token it never had.
+- *Secrets stay in a store*, and arrive as environment variables. So the agent sees the
+  *name* of a credential, and nothing more.
 
 * What went wrong, and what I think now
 
-The honest one. During setup, a job that pushed placeholder values into the secret store
-on a timer kept running after I'd put the real values in. On its next tick it overwrote
-them again. The agent then spent an evening being confidently useless, and I spent it
-assuming the tools were broken. The tools were fine. Anything that writes to your source
-of truth on a timer will eventually do it at exactly the wrong moment, and I still don't
-have a good way to stop it beyond remembering.
+Here is the honest one. While I set things up, I ran a job that pushed placeholder
+values into the secret store on a timer. Later, I put in the real values. But the job
+kept running. On its next run, it wrote the placeholders back over the real values.
+The agent then spent an evening being confidently useless. And I spent that evening
+thinking the tools were broken. The tools were fine.
 
-The value is real but smaller than I imagined. The agent is good at the same things the
-model is good at when it writes code: the mechanical, the repetitive, the look-it-up.
-It's genuinely useful to have a box that answers "what's actually running, and is it
-healthy" without me opening a terminal, and that can open the PR for the small thing it
-noticed. It isn't useful for anything needing judgment, and I've stopped hoping it will
-be.
+The lesson is not about agents. It is this: anything that writes to your source of
+truth on a timer will one day do it at the worst moment. I still do not have a good way
+to stop that. I just remember it.
 
-The worry isn't the model being malicious. It's the model being confidently wrong at the
-edge of what it can see — which is the same worry I have about myself. The answer is the
-same in both cases: put the parts that can't be undone behind a human, and let everything
-else move fast.
+The value is real, but smaller than I imagined. The agent is good at the same things
+the model is good at: the boring, the repeated, the look-it-up. It is useful to have a
+box that can answer "what is running, and is it healthy" without me opening a terminal.
+It is useful that it can open a pull request for a small thing it noticed. It is not
+useful for anything that needs judgement. I have stopped hoping it will be.
+
+My worry is not that the model is bad. My worry is that it is confidently wrong at the
+edge of what it can see. That is also my worry about myself. The answer is the same for
+both. Keep the things that cannot be undone behind a human. Let everything else move
+fast.
 
 #+begin_quote
 *Building the lab* — part 5. Previous: [[file:2026-10-14-one-cluster-three-nodes.org][One cluster, three nodes]].

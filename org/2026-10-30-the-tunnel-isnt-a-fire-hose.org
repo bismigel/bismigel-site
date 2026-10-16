@@ -7,36 +7,34 @@
 [[file:2026-10-28-observability-is-the-part-im-good-at.org][Observability is the part I'm good at]]
 #+end_quote
 
-I did a stupid thing, and I'm writing it down because the stupid thing had a
-genuinely useful lesson hiding inside it, the way they usually do.
+I did a stupid thing. I am writing it down, because the stupid thing had a useful lesson
+inside it. That usually happens.
 
-I tried to stream Jellyfin through my Cloudflare tunnel. Through the front door I
-built specifically so that nothing would ever be directly exposed. Through *Zero
-Trust*, with an authentication check on it and everything.
+I tried to stream Jellyfin through my Cloudflare tunnel. Through the front door I built
+so that nothing would ever be open directly. Through *Zero Trust*, with a login check on
+it and everything.
 
-It buffered. Obviously it buffered. I just didn't know why for way too long.
+It buffered. Of course it buffered. I just did not know why for a very long time.
 
-* The grand tour of wrong suspects
+* The tour of wrong answers
 
-The video stuttered, so I did what I always do and blamed the box.
+The video stuttered. So I did what I always do: I blamed the box.
 
 ** The server. Wrong.
-Jellyfin transcodes on the fly, so I assumed the little i5 couldn't keep up. I
-pulled up the transcode stats: it was encoding at about **280 frames per second**
-— roughly ten times real time — and was a third of the way *ahead* of playback.
-The server was bored. Not it.
+Jellyfin converts video while you watch. So I assumed the little i5 could not keep up. I
+checked the stats. It was converting at about **280 frames per second** — about ten times
+real time — and it was a third of the way *ahead* of me. The server was bored. Not it.
 
 ** The disk. Also wrong.
-The media pool is a mergerfs thing with NFS branches, and I'd had I/O trouble
-before, so I checked. Reads came back at ~300 MB/s. Also bored.
+The media storage is a mix of disks and a network share. I had trouble with it before. So
+I checked. Reads came back at about 300 MB/s. Also bored.
 
 ** The throttle. Still wrong (but a fun detour).
-I'd turned on transcoding throttling earlier as a power-saving trick. Surely it
-was pausing and starving the client? I turned it off. It did not help.
+Earlier, I had turned on a power-saving setting that pauses converting. Maybe it was
+pausing and starving the player? I turned it off. It did not help.
 
-** My internet. Deeply, gloriously wrong.
-At this point the only suspect left was the connection, so I ran a speed test,
-fully prepared to sigh.
+** My internet. Very, very wrong.
+Now the only suspect left was my connection. So I ran a speed test, ready to sigh.
 
 #+begin_src shell
 Ping     30.8 ms
@@ -44,63 +42,60 @@ Download 218 Mbit/s
 Upload   450 Mbit/s
 #+end_src
 
-*Upload* was 450. Four hundred and fifty. My connection is a fire hose with a
-garden tap confused about which direction is which. Ten megabits of video would
-not trouble it. So it wasn't my internet either — and I had now ruled out every
-single possibility except one.
+The *upload* was 450. Four hundred and fifty. My connection is a fire hose. Ten megabits
+of video would not trouble it. So it was not my internet either. And now I had ruled out
+everything except one thing.
 
-* The actual problem, which was the path
+* The real problem: the path
 
-Here's the clue that finally cracked it. I looked at where the player's requests
-were *arriving from*, and they were coming from a **pod's IP address** inside the
-cluster — the ingress — not from my laptop on the LAN. Which meant the stream
-wasn't going laptop → server. It was going:
+Here is the clue that broke it open. I looked at where the player's requests were *coming
+from*. They came from a **pod's address** inside the cluster — the ingress. Not from my
+laptop on the same network. So the stream was not going laptop -> server. It was going:
 
 #+begin_example
-laptop → my ISP → Cloudflare edge → back down the tunnel → ingress → Jellyfin
+laptop -> my ISP -> Cloudflare edge -> back down the tunnel -> ingress -> Jellyfin
 #+end_example
 
-A same-room video, taking a round trip through the public internet and back,
-because I'd opened the domain instead of the IP.
+A video from the same room, taking a trip through the internet and back. Because I had
+opened the domain name instead of the IP address.
 
 * And then the second, funnier problem
 
-Fine, I thought — it's a detour, but it's a *fast* detour. Then I read the part of
-Cloudflare's terms I'd skipped: the part where the free plan is explicitly not for
-"serving video or a disproportionate percentage of ... large files." They don't
-hand you a bandwidth meter and point at the number. They just don't want to be
-your media server, and they're allowed to make that felt.
+Fine, I thought. It is a detour, but a *fast* one. Then I read the part of Cloudflare's
+rules that I had skipped. The free plan is explicitly not for "serving video or a
+disproportionate percentage of ... large files". They do not give you a meter and point
+at a number. They just do not want to be your media server. And they are allowed to make
+that felt.
 
-There is no knob that says "throttle this." There is no setting I missed. The
-"throttle" *is* the policy. I went looking for a number to turn down and found a
+There is no switch that says "throttle this". There is no setting I missed. The
+"throttle" *is* the rule. I went looking for a number to turn down, and I found a
 paragraph instead.
 
-And on top of that: every three-second chunk of video had to pass through
-Cloudflare **Access** — a full authentication check, per fragment, for a movie. I
-had built a bouncer for a cinema.
+And on top of that: every three-second piece of video had to pass through Cloudflare
+**Access** — a full login check, for every piece, for a movie. I had built a bouncer for
+a cinema.
 
 * The fix, which took one second
 
-I opened Jellyfin at its LAN address instead — =http://192.168.2.81:8096= — and
-it was instant. No tunnel, no edge, no auth-per-frame. Just a wire between two
-machines that are sitting in the same room.
+I opened Jellyfin at its local address instead — =http://192.168.2.81:8096= — and it was
+instant. No tunnel, no edge, no login check for every piece of video. Just a wire between
+two machines that sit in the same room.
 
-For watching *away* from home, the right answer is a VPN (I went with Tailscale),
-so the video goes straight to the device and Cloudflare never sees a frame of it.
-The tunnel is for the *door*: the dashboards, the APIs, the login pages. It is
-not, and was never, a fire hose.
+For watching *away* from home, the right answer is a VPN (I chose Tailscale). Then the
+video goes straight to the device, and Cloudflare never sees a single frame of it. The
+tunnel is for the *door*: the dashboards, the APIs, the login pages. It is not, and never
+was, a fire hose.
 
 * The lesson
 
-I keep relearning the same shape of thing. The tunnel is an extraordinary tool for
-exactly what it's for — and I asked it to be something it isn't, then spent an
-evening carefully measuring every part of the house except the one that was
-broken.
+I keep learning the same shape of thing. The tunnel is a great tool for exactly what it
+is for. And I asked it to be something it is not. Then I spent an evening carefully
+measuring every part of the house, except the one that was broken.
 
-"Use the right path for the job" sounds like advice so obvious it's useless. Except
-I had a 450-megabit upload and a server idling at ten times real-time, and I still
-chose the slow way — because the slow way had a nice lock on it, and convenience
-wore a security badge, so I held the door open and waved it through.
+"Use the right path for the job" sounds so obvious that it is useless advice. Except I
+had a 450-megabit upload and a server that was bored. And I still chose the slow way.
+Because the slow way had a nice lock on it. The lock looked safe, so I held the door open
+and waved it through.
 
 #+begin_quote
 *Building the lab* — a detour. ← [[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one]] ·

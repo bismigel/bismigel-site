@@ -7,13 +7,13 @@
 [[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext →]]
 #+end_quote
 
-I wanted somewhere to write. I didn't want to run a database or learn a whole
-content system. What I ended up with is a small set of steps that I mostly
-understand, and I'm writing it down so I can remember how it fits together.
+I wanted a place to write. I did not want to run a database, or learn a whole content
+system. In the end, I got a few small steps that I mostly understand. I am writing
+them down, so I can remember how they fit together.
 
 * Writing
 
-Each post is just a file with a name like =org/this-file=. This one starts like
+Each post is just a file. The name looks like =org/this-file=. This post starts like
 this:
 
 #+begin_src org
@@ -24,21 +24,21 @@ this:
 Body text in Org.
 #+end_src
 
-I write in Org because I already use Emacs. It means I never have to deal with
-the messy HTML underneath. There's probably a lot I'm not using. It mostly stays
-out of my way, which is all I want.
+I write in Org, because I already use Emacs. This way, I never have to deal with the
+messy HTML underneath. There is probably a lot of Org that I do not use. It mostly
+stays out of my way, and that is all I want.
 
 * Turning it into a website
 
-A small script turns my files into the format the website builder wants:
+A small script turns my files into the format that the website builder wants:
 
 #+begin_src shell
 pandoc -s -f org -t markdown --wrap=none org/post.org \
   -o content/posts/post/index.md
 #+end_src
 
-I had to add an extra bit so my tags show up as tags. I copied that bit from
-someone else and I only half understand it. It works, so I've left it alone.
+I had to add one extra part, so that my tags show up as tags. I copied that part from
+someone else, and I only half understand it. It works, so I have left it alone.
 
 * Building and shipping
 
@@ -51,12 +51,13 @@ A robot runs the same steps every time I push:
 1. turn the files into the website format
 2. run the website builder
 3. put the result into a small web server image
-4. save the image and update the version number
+4. save the image and change the version number
 
-Then ArgoCD sees the new version and updates the site. I never do it by hand. The
-part I don't really follow is how the robot's version number gets back into my
-config so ArgoCD can see it. I set it up once and it works, but I'd have to read
-it again before touching it.
+Then ArgoCD sees the new version and updates the site. I never do it by hand.
+
+There is one part I do not follow: how the robot's version number gets back into my
+config, so that ArgoCD can see it. I set it up once, and it works. But I would have to
+read it again before I touch it.
 
 * Four jobs, four tools
 
@@ -67,8 +68,8 @@ it again before touching it.
 | build      | Hugo            |
 | deploy     | GHCR and ArgoCD |
 
-I like that each tool does one job, because when something breaks I can usually
-tell *where* it broke. That's been more useful to me than anything clever.
+I like that each tool does one job. When something breaks, I can usually tell *where*
+it broke. That has helped me more than anything clever.
 
 #+begin_quote
 *Building the lab* — part 2. Previous: [[file:2026-09-15-homelab-design.org][The design of the homelab]].
