@@ -3,35 +3,40 @@
 #+FILETAGS: homelab:design:nixos
 
 #+begin_quote
-*Building the lab* — part 1 of 8. You're at the start. Next:
+*Building the lab* — part 1 of 8. You are at the start. Next:
 [[file:2026-10-02-how-this-site-is-built.org][How this site is built →]]
 #+end_quote
 
-I've been messing with this homelab for a few months and I'm not an expert at any
-of it. Most of what's here I copied from guides and other people's configs, then
-changed until it worked. I'm writing it down so I don't forget — this is the tour
-of what it turned into, and the decisions behind it.
+I have worked on this homelab for a few months. I am not an expert at any of it.
+Most of what is here, I copied from guides and from other people's configs. Then I
+changed it until it worked. I am writing it down so I do not forget it.
 
-* The boxes
+This post is a tour of what the lab became, and why I made the choices I made.
 
-Two computers, and I didn't plan the split.
+* The computers
 
-- An AMD Ryzen 5 4600G, built from leftover parts. It runs my sites and most
-  everything else.
-- An Intel i5-7500T, bought used for about $100, because that generation can do
-  QuickSync — hardware video transcoding. It runs the media stack.
+I have two computers. I did not plan how to share the work between them.
 
-Later a third turned up: a 2012 MacBook Pro under a pile of cables. It only helps
-the cluster agree and runs nothing itself. That's a later post.
+- The first is an AMD Ryzen 5 4600G. I built it from spare parts. It runs my sites
+  and almost everything else.
+- The second is an Intel i5-7500T. I bought it used for about $100. I chose it
+  because this CPU can do QuickSync. QuickSync means it can convert video in
+  hardware. It runs the media apps.
+
+Later, a third machine showed up: a 2012 MacBook Pro that I found under a pile of
+cables. It only helps the cluster stay alive. It does not run any apps. I write
+about that in a later post.
 
 * NixOS
 
-I started on Proxmox, didn't like the extra layer between me and the thing I
-wanted to change, and wiped it to put the OS straight on the hardware.
+I started with Proxmox. I did not like the extra layer between me and the thing I
+wanted to change. So I removed it, and put the operating system directly on the
+hardware.
 
-I picked NixOS because I kept forgetting what I'd done. Now the whole machine is
-one file I can read back. I still find the language hard and copy a lot of it, but
-being able to rebuild a box from that file is why I stayed.
+I chose NixOS because I kept forgetting what I had done to my machines. Now the
+whole machine is one file that I can read back. The language is still hard for me.
+I copy a lot of it. But this is the reason I stayed: I can rebuild a machine from
+that one file.
 
 #+begin_src shell
 nix run github:serokell/deploy-rs -- .#<host>
@@ -39,36 +44,43 @@ nix run github:serokell/deploy-rs -- .#<host>
 
 * One cluster, not two
 
-This is the part I got wrong first. I started with two separate single-node
-clusters, one per box, each with its own copy of everything. Then I read that a
-single-node cluster is one machine, and a two-node one is actually *worse* than
-either — the cluster's memory needs a majority to agree, and with two you lose the
-majority the moment either dies.
+This is the first thing I got wrong. At the start, I had two separate clusters. Each
+box was its own cluster of one machine. Each one had its own copy of everything.
 
-So I merged them into one cluster of three machines. The MacBook was just enough to
-tolerate losing one. "More machines" and "one cluster" are different ideas, and I'd
-confused them. The merge is its own post later.
+Then I learned something. A cluster of one machine is just one machine. And a
+cluster of two machines is *worse* than either. Here is why. The cluster keeps its
+memory on all of its machines. To change anything, most of the machines must agree.
+With two machines, you need both. So if one machine dies, the whole cluster stops.
+Two machines are not better than one. They are worse.
+
+So I joined the two machines into one cluster. Later I added the MacBook as a third
+machine. Three is enough to lose one machine and keep going. "More machines" and
+"one cluster" are two different ideas, and I had mixed them up. The merge has its
+own post, later.
 
 * Where things run
 
-The media stack is pinned to the Intel box, because it's the one with QuickSync and
-it'd be a waste anywhere else. Everything else lives on the AMD box. The MacBook is
-kept deliberately small — tainted so nothing lands on it. Written down it looks
-obvious; it took me a while.
+The media apps run only on the Intel box. That box has QuickSync, so it is the right
+place for them. Every other app runs on the AMD box. I keep the MacBook small on
+purpose. I marked it so that no apps can land on it.
+
+When I write it down, it looks obvious. It took me a while to get there.
 
 * Kubernetes
 
-Honestly, plain Docker would have worked. I picked Kubernetes to learn it, and I
-don't know it well. Each box runs k3s. I turned off the two extras it ships with
-(Traefik and a load balancer) because I didn't understand them, and used
-ingress-nginx instead, which I could follow. Maybe the wrong call; it's one I can
-read.
+To be honest, plain Docker would have worked fine. I chose Kubernetes because I
+wanted to learn it. I still do not know it well.
+
+Each box runs k3s. k3s comes with two extra parts (Traefik and a load balancer). I
+did not understand them, so I turned them off. I used ingress-nginx instead, because
+I could follow what it does. Maybe that was the wrong choice. But it is a choice I
+can read.
 
 * ArgoCD
 
-The cluster's desired state lives in git and ArgoCD makes the cluster match it. I
+The state I want for the cluster lives in git. ArgoCD makes the cluster match it. I
 understand it at a high level. One ArgoCD runs *inside* the cluster and manages the
-whole thing — I can't tell you what happens if it breaks, which is part of why the
+whole thing. I cannot tell you what happens if it breaks. That is one reason the
 control plane and the storage have backups.
 
 The layout looks like this:
@@ -77,39 +89,40 @@ The layout looks like this:
 bakuran-gitops/
   bootstrap/root-app.yaml       # the one root
   applications/<cluster>/...    # one folder per cluster
-  manifests/<app>/...           # raw manifests the apps point at
+  manifests/<app>/...           # the files the apps point at
 #+end_example
 
-There's a clever bit that picks up new machines automatically. I copied it from an
-example and couldn't explain exactly how it works.
+One part is clever: it finds new machines on its own. I copied it from an example. I
+cannot fully explain how it works.
 
-When I change an app:
+When I change an app, this happens:
 
 1. I push the code.
 2. A robot builds it and pushes a container image.
-3. The robot opens a pull request that bumps one version number.
-4. ArgoCD notices the merge and updates the running app.
+3. The robot opens a pull request that changes one version number.
+4. ArgoCD sees the merge and updates the running app.
 
-I like this because the robot never gets the keys to my cluster — it can only
-change one number, and I approve it.
+I like this. The robot never gets the keys to my cluster. It can only change one
+number, and I approve the change.
 
 * Secrets
 
-Short version: plaintext never enters git. Host secrets (like the tunnel
-credentials) stay encrypted in the NixOS repo with SOPS; cluster secrets live
-outside the lab in Bitwarden and get injected by External Secrets Operator. I went
-through two worse setups first — that's the post after next.
+The short version: plain text never goes into git. Secrets for the machines (like the
+tunnel credentials) stay encrypted in the NixOS repo. I use a tool called SOPS for
+that. Secrets for the cluster live outside the lab, in Bitwarden. A tool called
+External Secrets Operator puts them into the cluster. I tried two worse setups first.
+That is the post after next.
 
 * The front door
 
-Nothing is exposed directly. A tunnel makes an outgoing connection to Cloudflare,
-and that's how the outside reaches my sites. Access sits in front of it, so a
-request has to belong to someone first. I understand this part the least and trust
-it the most.
+Nothing is open to the internet directly. A tunnel makes an outgoing connection to
+Cloudflare. That is how the outside world reaches my sites. Access sits in front of
+it. So a request must belong to someone before it gets in. I understand this part the
+least, and I trust it the most.
 
 * How it fits together
 
-Lists of words are hard for me to hold in my head, so here it is as a picture:
+Long lists of words are hard for me to keep in my head. So here it is as a picture:
 
 #+begin_src mermaid
 flowchart TB
@@ -128,16 +141,16 @@ flowchart TB
   end
 #+end_src
 
-* What I'd still change
+* What I would still change
 
-The front door trusts an identity header Access adds, which is only safe if the
-origin can be reached *only* through the tunnel. For a while the services were also
-reachable on the LAN, where that header can be faked. I fixed that since — the LAN
-can't bypass the edge anymore — but I'd rather leave it written down than pretend
-it was never a problem.
+The front door trusts an identity header that Access adds. That is only safe if the
+origin can be reached *only* through the tunnel. For a while, my services were also
+reachable on the LAN. On the LAN, someone could fake that header. I fixed this later.
+The LAN can no longer bypass the edge. But I want to keep it written down, instead of
+pretending it was never a problem.
 
-Which is the theme: I've gotten more from the things I got wrong than from anything
-I read.
+That is the theme, really. I have learned more from the things I got wrong than from
+anything I read.
 
 #+begin_quote
 *Building the lab* — part 1. Next: [[file:2026-10-02-how-this-site-is-built.org][How this site is built]].
