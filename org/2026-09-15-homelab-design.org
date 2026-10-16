@@ -3,8 +3,8 @@
 #+FILETAGS: homelab:design:nixos
 
 #+begin_quote
-*Building the lab* — part 1 of 8. You are at the start. Next:
-[[file:2026-10-02-how-this-site-is-built.org][How this site is built →]]
+*Building the lab — Part 1 of 8.* You are at the start.
+Next: [[file:2026-10-02-how-this-site-is-built.org][How this site is built]]
 #+end_quote
 
 I have worked on this homelab for a few months. I am not an expert at any of it.
@@ -152,6 +152,8 @@ pretending it was never a problem.
 That is the theme, really. I have learned more from the things I got wrong than from
 anything I read.
 
+Before any of the rest, I needed somewhere to write it all down. That is the next part.
+
 #+begin_quote
-*Building the lab* — part 1. Next: [[file:2026-10-02-how-this-site-is-built.org][How this site is built]].
+*Building the lab — Part 1 of 8.* Next: [[file:2026-10-02-how-this-site-is-built.org][How this site is built]].
 #+end_quote

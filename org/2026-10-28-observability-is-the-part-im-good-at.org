@@ -3,8 +3,8 @@
 #+FILETAGS: homelab:observability:monitoring
 
 #+begin_quote
-*Building the lab* — part 8 of 8. ← [[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one]] ·
-you are at the end.
+*Building the lab — Part 8 of 8.* ← [[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one]]
+You are at the end.
 #+end_quote
 
 Most of this lab is me learning in public. I write about the parts I barely understand,
@@ -96,6 +96,10 @@ scream when they do not.
 
 I am not smart about most of this lab. But this part I know, and it shows.
 
+That is the story so far. Two boxes became three. The lab learned to watch itself. It is
+not finished, and I am still not an expert. But it is honest, and now it tells me when
+something breaks.
+
 #+begin_quote
-*Building the lab* — part 8. Previous: [[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one]].
+*Building the lab — Part 8 of 8.* Previous: [[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one]].
 #+end_quote

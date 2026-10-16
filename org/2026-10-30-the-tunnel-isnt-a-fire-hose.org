@@ -3,7 +3,8 @@
 #+FILETAGS: homelab:cloudflare:media
 
 #+begin_quote
-*Building the lab* — a detour off the end. ← [[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one]] ·
+*Building the lab* — a side story. (Not part of the numbered series.)
+← [[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one]] ·
 [[file:2026-10-28-observability-is-the-part-im-good-at.org][Observability is the part I'm good at]]
 #+end_quote
 
@@ -98,6 +99,6 @@ Because the slow way had a nice lock on it. The lock looked safe, so I held the 
 and waved it through.
 
 #+begin_quote
-*Building the lab* — a detour. ← [[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one]] ·
+*Building the lab* — a side story. ← [[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one]] ·
 [[file:2026-10-28-observability-is-the-part-im-good-at.org][Observability is the part I'm good at]]
 #+end_quote
