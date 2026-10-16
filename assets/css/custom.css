@@ -11,6 +11,12 @@
   }
 }
 
+/* Indent sub-headings in the table of contents so the hierarchy is visible. */
+.toc .toc-sub {
+  padding-left: 1.5rem;
+  opacity: 0.85;
+}
+
 /* Fully static: disable the logo colour-flicker (intro on load + on hover). */
 .logo-letters.intro span,
 .logo-letters:hover span {

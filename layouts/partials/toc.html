@@ -1,0 +1,24 @@
+{{/*
+  Site override of the theme's toc.html partial.
+
+  The theme listed only `(index .Fragments.Headings 0).Headings` — the children of the
+  FIRST top-level heading. So a post got a table of contents only when its first
+  section happened to have sub-headings ("**" in Org). Here we list every top-level
+  heading (the "* Section" headings) plus their sub-headings, so every post gets a
+  consistent table of contents.
+*/}}
+{{- $roots := .Fragments.Headings -}}
+{{- if $roots }}
+<button type="button" id="toc-toggle" class="toc-toggle" aria-label="Table of contents" aria-expanded="false" aria-controls="toc">
+  {{ partial "icon.html" "list" }}
+</button>
+<nav class="toc" id="toc">
+  <span class="toc-indicator" aria-hidden="true"></span>
+  {{- range $roots }}
+  <a href="#{{ .ID }}" class="toc-link">{{ .Title | emojify }}</a>
+  {{- range .Headings }}
+  <a href="#{{ .ID }}" class="toc-link toc-sub">{{ .Title | emojify }}</a>
+  {{- end }}
+  {{- end }}
+</nav>
+{{- end -}}
