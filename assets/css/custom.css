@@ -33,3 +33,26 @@
 ::view-transition-new(*) {
   animation: none !important;
 }
+
+/* Sidebar: keep it scrollable but hide the visible scrollbar, and tighten the
+   spacing so the icon-only links (GitHub, RSS, theme) fit without one. */
+.sidebar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.sidebar::-webkit-scrollbar {
+  display: none;
+}
+@media (min-width: 900px) {
+  .sidebar {
+    padding-top: 2.5rem;
+    padding-bottom: 2.5rem;
+    gap: 1.75rem;
+  }
+}
+.sidebar-bottom {
+  gap: 0.5rem;
+}
+#theme-toggle {
+  padding: 0.3rem 0.4rem;
+}

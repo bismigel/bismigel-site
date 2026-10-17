@@ -30,9 +30,9 @@
         <a href="{{ "/projects/" | relLangURL }}">{{ partial "icon.html" "list" }}<span>Projects</span></a>
       {{- end }}
       {{- range site.Params.author.links }}
-      <a href="{{ .url }}" target="_blank" rel="me noopener">{{ partial "icon.html" .icon }}<span>{{ .name }}</span></a>
+      <a href="{{ .url }}" target="_blank" rel="me noopener" title="{{ .name }}" aria-label="{{ .name }}">{{ partial "icon.html" .icon }}</a>
       {{- end }}
-      <a href="{{ "/index.xml" | relLangURL }}">{{ partial "icon.html" "rss" }}<span>RSS</span></a>
+      <a href="{{ "/index.xml" | relLangURL }}" title="RSS" aria-label="RSS">{{ partial "icon.html" "rss" }}</a>
     </div>
   </div>
 
@@ -42,7 +42,6 @@
       <button type="button" id="theme-toggle" aria-label="Toggle color theme">
         <span class="icon-sun">{{ partial "icon.html" "sun" }}</span>
         <span class="icon-moon">{{ partial "icon.html" "moon" }}</span>
-        <span class="theme-toggle-label">Theme</span>
       </button>
     </div>
     <div class="sidebar-footer">&copy; {{ now.Year }} {{ site.Copyright | default site.Title }}</div>
