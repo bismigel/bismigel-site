@@ -56,3 +56,16 @@
 #theme-toggle {
   padding: 0.3rem 0.4rem;
 }
+
+/* Bottom sidebar links: one horizontal icon row (GitHub, RSS, Tags, theme). */
+.sidebar-links.icon-row {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.sidebar-links.icon-row a,
+.sidebar-links.icon-row button {
+  margin: 0;
+  padding: 0.35rem;
+}

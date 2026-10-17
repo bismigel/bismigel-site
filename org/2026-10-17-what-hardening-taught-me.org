@@ -57,7 +57,7 @@ you claim is declared. I caught myself applying changes imperatively and telling
 myself I would fix the manifest later. Later is how drift starts.
 
 So I tightened the loop: pull requests only, a hook on the admin workstation that
-refuses direct pushes to `main`, and an alert when an app is out of sync or
+refuses direct pushes to =main=, and an alert when an app is out of sync or
 unhealthy for more than fifteen minutes. The cluster repairs itself; the alarm
 tells me when it cannot.
 
@@ -88,12 +88,12 @@ length, and the setup script stores it where the tools read it.
 
 * Pin what you do not control
 
-Using `latest` for someone else's image is a decision to be surprised later. I
+Using =latest= for someone else's image is a decision to be surprised later. I
 pinned the third-party images, and where a project only publishes a rolling tag, I
 pin the digest instead.
 
-The first attempt at pinning was also a lesson: the release tag was `0.33.2`, not
-`v0.33.2`, and I caught it only because I checked the registry before merging.
+The first attempt at pinning was also a lesson: the release tag was =0.33.2=, not
+=v0.33.2=, and I caught it only because I checked the registry before merging.
 Verify the thing you are about to depend on.
 
 * The unglamorous work is the work
