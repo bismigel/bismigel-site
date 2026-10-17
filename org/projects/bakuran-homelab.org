@@ -1,0 +1,326 @@
+#+TITLE: The Bakuran homelab — technical reference
+#+DATE: 2026-10-17
+#+SUMMARY: A definitive, versioned write-up of the lab: hardware, network, storage, GitOps, services, backups, security and the failure modes that shaped it.
+#+FILETAGS: :homelab:kubernetes:gitops
+
+* Document control
+
+| Field | Value |
+|-------+-------|
+| Document | Bakuran homelab — technical reference |
+| Version | *2026-10-17* (first definitive version) |
+| Scope | Hardware, network edge, cluster, storage, delivery, services, observability, backups, security |
+| Audience | Future me, anyone reviewing the design, and the agent that helps run it |
+| Redactions | Internal addresses, account identifiers and credentials are omitted on purpose |
+
+This is the reference document: the thing I wish existed when I started. It
+describes *what* runs, *why* it is shaped that way, and *how* it fails. Where a
+component has a sharp edge, the edge is written down.
+
+* 1. Goals and constraints
+
+The lab exists to be **useful** and to be a place to practise operations on real
+failures. The constraints shaped almost every decision:
+
+- *Three old machines, no rack, residential power and internet.* High availability
+  is desirable, but high *cost* is not.
+- *One operator.* Anything that needs a human at 3am must page; anything that
+  needs a human every week must be automated or removed.
+- *Everything must be rebuildable.* A machine can die and the lab should come
+  back from declarative state plus backups.
+- *The edge is the only door.* No inbound ports; Cloudflare Tunnel is the sole
+  path from the internet.
+
+* 2. Hardware
+
+| Role | Machine | Specs | Runs |
+|------+---------+-------+------|
+| Platform | AMD desktop | Ryzen 5 4600G (6c/12t), 16–32 GB RAM, 2× NVMe + 2× SATA | Control plane + etcd, ArgoCD, ingress, edge connectors |
+| Media | Intel mini-PC | i5-7500T (4c), QuickSync, 2× NVMe + 2× SATA | Jellyfin and the *arr stack, transcoding |
+| Quorum + photos | 2012 MacBook Pro | ~240 GB SSD | Third etcd member (tainted), Immich server/DB |
+| Admin | Workstation | — | NixOS + Home Manager, deploys, dead-man's switch |
+| Edge | Cloudflare | — | Tunnel, DNS, TLS, Zero Trust Access, R2 |
+
+The taint on the MacBook is deliberate: it is a quorum member and a photo host,
+not a general-purpose worker. Removing it from the cluster would leave two etcd
+members — a worse failure mode than using it carefully.
+
+* 3. Network and edge
+
+The LAN is flat and boring. Every host is static; there is no VLAN segmentation.
+That is a known trade-off: simplicity now, a segmentation project later.
+
+The **public edge is Cloudflare Tunnel**, not port forwarding:
+
+- One tunnel, two connectors (platform + media) for redundancy.
+- Every public hostname is a proxied CNAME to the tunnel; the tunnel routes to
+  ingress-nginx bound to **loopback-only** NodePorts. There is no externally
+  reachable NodePort.
+- TLS is terminated at Cloudflare; the origins speak HTTP inside the cluster.
+- *Zero Trust Access* gates admin and personal apps with email OTP and per-app
+  session lengths (short for admin, long for media devices).
+- **Public exceptions** are deliberate: Jellyfin, Immich, Karakeep and Kavita
+  have their own authentication, and their native clients cannot complete an
+  interactive Access challenge. They are exposed behind the user's own login
+  instead. This is the single biggest security trade-off in the design and it is
+  documented rather than hidden.
+- Minimum TLS 1.2 and Bot Fight Mode are enforced from the same declarative
+  edge file that creates the tunnel routes, DNS records and Access apps. A daily
+  timer reconciles it so hand edits do not survive.
+
+* 4. The cluster
+
+One **k3s cluster with three embedded-etcd members** — not three clusters. This
+is the most important simplification in the lab: one API server, one ArgoCD, one
+set of CRDs, one place to look.
+
+- Kubernetes v1.34 (k3s packaging), containerd, Flannel.
+- Three server nodes; the MacBook is tainted so only Immich opts in.
+- Workloads are pinned where their hardware lives (media on the Intel box for
+  QuickSync and local storage; Immich on the MacBook; platform pieces anywhere).
+- Ingress runs with two replicas; cloudflared connectors run on two nodes.
+- NodePorts are loopback-only by design; the LAN path exists only for the media
+  UIs (Jellyfin/*arrs) because those apps refuse no-auth remote access but are
+  comfortable on the LAN.
+
+* 5. Storage
+
+There are three storage stories, and confusing them is how data gets lost.
+
+**Cluster storage (Longhorn).** Application config and databases live on
+Longhorn volumes with two replicas. This is for state that must follow a pod to
+another node: ArgoCD, monitoring, app configs, small databases.
+
+**Media pool (mergerfs).** Four disks across two hosts are unioned into a single
+~1.2 TB pool. The platform host exports its partitions over NFS; the media host
+unions all four. Media is re-downloadable and *not* backed up. This is explicit:
+the backup budget goes to configuration, credentials and photos, not to Linux
+ISOs and TV episodes.
+
+**Photo store (local).** Immich keeps its library and Postgres data on the
+MacBook's internal SSD. It is backed up by a database dump plus a file-level
+archive, not by replicating the disk.
+
+* 6. GitOps and delivery
+
+Everything that can be declared is declared. The flow is:
+
+1. An application repo merges to `main`.
+2. GitHub Actions builds a container image and pushes it to GHCR.
+3. The GitOps repo references the image; ArgoCD (auto-sync, self-heal, prune)
+   applies it.
+4. Cluster state drift is corrected automatically, and an alert fires if an app
+   stays out of sync or unhealthy.
+
+NixOS hosts are separate: they are built from `bakuran-infra` and deployed with
+`deploy-rs`, with magic rollback. The OS is not managed by ArgoCD, and that is
+intentional — the cluster should not be able to brick its own hosts.
+
+Reproducibility rules that came out of real failures:
+
+- Third-party images are **pinned** (version or digest). `latest` is not a
+  version.
+- Renovate proposes dependency and digest updates; a human reviews and merges.
+- Direct pushes to `main` are blocked on the admin workstation by a git hook
+  (GitHub's branch protection needs a paid plan on private repos — recorded as a
+  known limitation).
+- Rebuild steps that involve application UIs are scripted. The book stack has a
+  single idempotent bootstrap command that recreates admin accounts, libraries
+  and download clients.
+
+* 7. Platform services
+
+- *ingress-nginx* — the only HTTP entry from the tunnel; forwards client IPs.
+- *cert-manager* — internal certificates; public TLS is at Cloudflare.
+- *External Secrets Operator* — Bitwarden Secrets Manager is the source of truth;
+  Kubernetes secrets are materialised from it. Host-level secrets use SOPS/age.
+- *Monitoring* — Prometheus, Alertmanager and Grafana. Scrapes node-exporter,
+  kube-state-metrics, Kepler (power) and the ArgoCD controller endpoints.
+- *Kepler* — per-node power/energy metrics; useful for capacity and for noticing
+  a runaway transcode.
+- *Homepage* — a single landing page for every service.
+
+* 8. Media platform
+
+Jellyfin and the *arr stack run on the Intel host, pinned by nodeSelector so
+transcoding uses QuickSync and media reads stay local.
+
+- Sonarr (TV), Radarr (movies), Prowlarr (indexers), Bazarr (subtitles).
+- qBittorrent for torrents (anime is torrent-first: Nyaa batches), SABnzbd for
+  Usenet fallback.
+- A host-level nftables kill switch forces all egress through ProtonVPN and
+  blocks the internet if the tunnel drops. LAN and cluster traffic are exempt.
+- Remote Jellyfin clients are capped at 12 Mbps per user; LAN clients are not.
+  Jellyfin trusts the ingress and cluster networks as proxies so it can tell the
+  difference.
+- New media appears on a scheduled scan (mergerfs has no inotify semantics worth
+  relying on).
+
+* 9. Photos
+
+Immich runs split: the server, Postgres and Valkey on the MacBook; the
+machine-learning container on the platform host. Photo backup from phones is the
+primary use, so the public hostname is not Access-gated; Immich's own accounts
+and app passwords are the control. Accounts mirror the family's Jellyfin users.
+
+* 10. Books
+
+Kavita (reading) and LazyLibrarian (acquisition) run on the media host, sharing
+`/mnt/media/books`.
+
+The pipeline is: LazyLibrarian searches Newznab (NZBGeek) → sends to SABnzbd
+(category `books`) → post-processes completed downloads into `/books` → Kavita
+scans the folder.
+
+Sharp edges that are now codified:
+
+- LazyLibrarian's SAB client fields are not enough; the *download method* must be
+  enabled or every grab is silently dropped.
+- The directory SAB reports back must exist inside LazyLibrarian, so both
+  containers mount the same media tree.
+- New authors' books default to `Skipped`; the setup sets `Wanted` so a new
+  author is actually searched.
+- Kavita's library must have **metadata enabled**, otherwise it derives series
+  from filenames (`Title - Author.epub` → no series) and imports nothing while
+  logging "Unable to parse any meaningful information".
+- LazyLibrarian re-serialises its config on startup and drops sections it did not
+  create. Its configuration is therefore driven through its real UI by a script,
+  not by editing files.
+- Kavita's account model needs the `Login` role; without it the account exists
+  but login says "account is disabled". Account lock/unlock toggles that role.
+
+The agent can acquire books through the media MCP: find an author, add them,
+inspect wanted/snatched books, and queue/search individual titles. The
+LazyLibrarian API is internal and keyed; the key is exactly 32 characters (the
+app rejects anything else, quietly).
+
+* 11. Bookmarks
+
+Karakeep stores bookmarks and full-text search runs in Meilisearch. AI tagging
+and summarisation use a **local Ollama** model; no bookmark content leaves the
+LAN. The public hostname is not Access-gated because the mobile apps cannot do
+the OTP flow; NextAuth is the gate.
+
+* 12. The agent
+
+ZeroClaw runs in-cluster with MCP servers for Kubernetes, GitHub and the media
+stack (Sonarr/Radarr/Prowlarr/SABnzbd/qBittorrent/Jellyfin/LazyLibrarian). It has
+a context ConfigMap generated from the private operations docs, so it knows the
+topology and the gotchas.
+
+Guardrails matter more than capabilities:
+
+- Cloudflare writes are not available to the agent; reads go through a local
+  read-only proxy.
+- Desired state changes go through pull requests.
+- The agent is told to ask before anything destructive.
+
+* 13. Observability and alerting
+
+Prometheus scrapes the cluster and the edge paths that matter. Alerts route to
+Telegram through Alertmanager, grouped so a single failure does not become ten
+messages.
+
+What is watched today:
+
+- Node and target availability, disk fill, memory pressure.
+- ArgoCD application drift and health (after 15 minutes).
+- Logins to the edge and to Jellyfin/Immich (new sessions, not every request).
+- Backups: unit failure, staleness (newest archive older than 36 hours), and a
+  weekly **restore verification** (decrypt, `gzip -t`, full `tar -t`, SQLite
+  integrity check on the app databases, `gzip -t` on the database dump).
+- An external dead-man's switch on the admin workstation: if the public status
+  endpoint is unreachable three checks in a row, Telegram gets a message; a
+  recovery message follows.
+
+The dead-man's switch runs outside the cluster on purpose. A monitor that lives
+inside the thing it monitors is decoration.
+
+* 14. Backups and disaster recovery
+
+Two daily, age-encrypted streams go to Cloudflare R2:
+
+- `credentials/` — host SSH keys (also the SOPS age identity), kubeconfig and the
+  Bitwarden machine token. Kept 90 days.
+- `appdata/` — config volumes and databases for the *arrs, Jellyfin, Grafana,
+  Prometheus, ZeroClaw, Immich (dump + library), Kavita, LazyLibrarian, Karakeep
+  and Meilisearch. Kept 14 days.
+
+Design decisions:
+
+- A partial backup **fails the unit** instead of uploading something incomplete.
+- Freshness is checked independently of the backup timer.
+- Restore is verified weekly, not assumed.
+- Media files are not backed up; they are re-downloadable. Photos are backed up
+  because they are not.
+- The age identity needed to restore is itself stored in the password manager and
+  on the admin workstation.
+
+The honest RPO is about a day for application state and credentials; the RTO is a
+rebuild plus restore, measured in hours, not minutes.
+
+* 15. Security posture
+
+- *Secrets* live in Bitwarden Secrets Manager, materialised by External Secrets;
+  host secrets use SOPS/age. Nothing sensitive is in git (a local plaintext
+  credentials file exists on the admin host and is deliberately not versioned).
+- *Edge*: no inbound ports, TLS 1.2 minimum, Bot Fight Mode, Access on admin
+  surfaces.
+- *Auth*: each public app uses its own login; accounts are non-admin by default;
+  lockout is enabled.
+- *Supply chain*: pinned digests, a weekly image scan, dependency updates via
+  Renovate, and a human merge gate.
+- *Change control*: pull requests only; the cluster self-heals; host changes go
+  through `deploy-rs`.
+
+Known gaps, stated plainly: no custom rate limiting on the free Cloudflare plan,
+no image signing or SBOM yet, no full-cluster disaster-recovery rehearsal yet,
+and one public login surface (Kavita) that is internet-facing.
+
+* 16. Reproducibility
+
+A rebuild has three layers:
+
+1. *NixOS hosts* — `bakuran-infra`, deployed with `deploy-rs`; SSH keys, users,
+   services and the edge reconciler are declared.
+2. *Cluster* — `bakuran-gitops` in ArgoCD; every namespace, workload, secret
+   reference, ingress and alert is a manifest.
+3. *Application state* — restorable from the R2 backup, or recreated by scripts:
+   the book stack has one idempotent bootstrap; the media stack has setup scripts
+   for root folders, clients, indexers and users.
+
+Pinned images, versioned scripts and dated documentation are what make the next
+rebuild boring. That is the goal.
+
+* 17. Failure modes that shaped the design
+
+| Symptom | Root cause | Fix / rule |
+|---------+------------+------------|
+| Books downloaded but never imported | SAB completed into a path LazyLibrarian did not mount | Mount the same tree in both containers |
+| Every grab silently dropped | SAB download method disabled | Enable it in the UI setup script |
+| Kavita imported nothing | Library metadata disabled; series parsed from filenames | Enable metadata on the library |
+| "account is disabled" on login | Missing `Login` role | Role is part of the invite flow; lock/unlock toggles it |
+| Backup "succeeded" with missing data | Failed dumps only logged SKIP | Fail the unit before upload |
+| No backup alert when the timer stopped | OnFailure cannot see a timer that never ran | Daily freshness check + external dead-man's switch |
+| Backup never restored | Trust | Weekly automated restore verification |
+| Drift alerts never fired | Scraped the ArgoCD Service; only the leader has app metrics | Scrape controller endpoints |
+| Config rejected after restart | Manual YAML indentation | Validate configs before merge; prefer generated files |
+| Image pull failures after pinning | Guessed tag (`v0.33.2` vs `0.33.2`) | Verify tags/digests before merging |
+
+* 18. Known limitations and next
+
+- Branch protection is enforced by a workstation hook, not GitHub (plan limit).
+- Zero-touch rebuild is not complete: bootstrap is one command, not zero.
+- No SLOs or error budgets yet; alerts are symptom-based.
+- No secrets rotation schedule.
+- Media is unbacked by design; the trade-off is documented, not solved.
+- Full DR rehearsal (rebuild a host, restore everything) is still a manual plan.
+
+* 19. Version history
+
+| Version | Date | Change |
+|---------+------+--------|
+| 2026-10-17 | 2026-10-17 | First definitive version: full architecture, backups/verification, security posture, failure modes |
+
+If you are reading this in the future and something here is wrong, the document
+is the bug: update it in the same change that fixes the lab.

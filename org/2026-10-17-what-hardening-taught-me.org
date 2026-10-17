@@ -1,0 +1,123 @@
+#+TITLE: What hardening the lab actually taught me
+#+DATE: 2026-10-17
+#+FILETAGS: :homelab:backups:gitops
+
+I spent a day trying to make the homelab *honest*. Not adding features — the
+opposite. I went looking for the places where the lab was quietly lying to me,
+and then wrote down what I found. Some of it was embarrassing.
+
+* A backup you have not restored is a hope
+
+The backups were running every night. They were also, for a while, allowed to
+"skip" a component and still report success. The unit went green; the archive
+was incomplete; nobody knew.
+
+The fix was not exotic. If any dump is missing, the backup fails *before* it
+uploads anything. Then a daily check asks a different question: is the newest
+archive older than 36 hours? That catches the case where the timer never ran at
+all, which a failure alert cannot see.
+
+And once a week, a job decrypts the newest archive, unpacks it, and runs an
+integrity check on the databases inside. If the backup cannot be restored, it is
+not a backup. It is a file.
+
+* Silent failures are the default
+
+Almost every problem I found that day was silent:
+
+- The book downloader had the right SABnzbd details but the download *method* was
+  disabled, so every grab was dropped with a warning nobody read.
+- Downloads completed into a directory the post-processor could not see, because
+  the two containers mounted different paths.
+- The reading app imported nothing because metadata parsing was off; it fell back
+  to filenames, could not find a series name, and logged "unable to parse" for
+  every book.
+
+None of these produced an error the user would notice. They produced *nothing*.
+The system looked fine and did nothing.
+
+My new rule is boring: if a component can fail without anyone noticing, it needs a
+check that notices. Quiet success is not the same as success.
+
+* Paths are interfaces
+
+The path mismatch is the one that still annoys me. Two containers, same host
+storage, different mount points. The download client faithfully reported where it
+put the file; the post-processor faithfully looked somewhere else.
+
+Filesystem paths between containers are an API. They deserve the same care as an
+HTTP contract: decide the shared tree once, mount it consistently, and write down
+the assumption. I fixed the mount and now the setup script states the completed
+path explicitly, so the next rebuild does not rediscover it.
+
+* Drift is a habit, not a tool
+
+GitOps is not "we use ArgoCD". It is the habit of never hand-editing the thing
+you claim is declared. I caught myself applying changes imperatively and telling
+myself I would fix the manifest later. Later is how drift starts.
+
+So I tightened the loop: pull requests only, a hook on the admin workstation that
+refuses direct pushes to `main`, and an alert when an app is out of sync or
+unhealthy for more than fifteen minutes. The cluster repairs itself; the alarm
+tells me when it cannot.
+
+GitHub's branch protection wants a paid plan for private repos, so the hook is a
+workaround, not a solution. I wrote that down instead of pretending it was done.
+
+* Watch the watcher
+
+Every monitor in this lab runs inside the lab. If the lab is down, the monitor is
+down, and the silence looks exactly like health.
+
+The dead-man's switch is the exception: a small timer on the admin workstation
+outside the cluster, pinging the public status endpoint. Three failures in a row
+and Telegram gets a message; when it comes back, so does a recovery note.
+
+It is not sophisticated. It is the difference between "probably fine" and "I would
+know".
+
+* Small constraints catch you
+
+The LazyLibrarian API key must be exactly 32 characters. I generated 40, the app
+accepted it into the config, and the API answered "invalid API key". No error
+about length; just a key that did not work.
+
+That one is a reminder that validation is often implicit and that a config being
+written is not the same as it being valid. I now generate the key at the right
+length, and the setup script stores it where the tools read it.
+
+* Pin what you do not control
+
+Using `latest` for someone else's image is a decision to be surprised later. I
+pinned the third-party images, and where a project only publishes a rolling tag, I
+pin the digest instead.
+
+The first attempt at pinning was also a lesson: the release tag was `0.33.2`, not
+`v0.33.2`, and I caught it only because I checked the registry before merging.
+Verify the thing you are about to depend on.
+
+* The unglamorous work is the work
+
+None of this made a demo. There is no screenshot. It is a pile of checks,
+scripts, and boring conventions:
+
+- one command to rebuild the book stack,
+- a weekly restore test,
+- a freshness check,
+- an external heartbeat,
+- digests instead of tags,
+- a written list of the ways it has already broken.
+
+That last one might be the most useful artifact. The lab is not impressive
+because it is complex; it is slowly becoming trustworthy because its failure
+modes are written down and watched.
+
+If you want the long version — hardware, network, storage, GitOps, services,
+backups, security, and the full failure table — it lives in the
+[[https://bismigel.dev/projects/bakuran-homelab/][technical reference]].
+
+* What I would do next
+
+A full disaster-recovery rehearsal, not just a backup verification. Actually
+rebuild a host, restore the data, and time it. Until I do that, "the backups
+work" is still a claim, not a measurement.
