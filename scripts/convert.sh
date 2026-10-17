@@ -40,7 +40,7 @@ for f in org/*.org; do
   # Remove tag keywords before pandoc (it would emit them as raw org blocks)
   src="$(mktemp)"; md="$(mktemp)"
   grep -viE '^#\+(filetags|tags):' "$f" > "$src"
-  "$PANDOC" -s -f org -t markdown --wrap=none "$src" -o "$md"
+  "$PANDOC" -s -f org -t gfm --wrap=none "$src" -o "$md"
   rm -f "$src"
 
   # Org cross-links to sibling posts are written as [[file:<slug>.org][...]],
@@ -92,7 +92,7 @@ done
 
     src="$(mktemp)"; md="$(mktemp)"
     grep -viE '^#\+(title|date|summary|filetags|tags|externalurl|github|website|docs|description):' "$f" > "$src"
-    "$PANDOC" -f org -t markdown --wrap=none "$src" -o "$md"
+    "$PANDOC" -f org -t gfm --wrap=none "$src" -o "$md"
     rm -f "$src"
     sed -i "s/\\\\'/'/g" "$md"
     sed -i 's/{\.verbatim}//g' "$md"
