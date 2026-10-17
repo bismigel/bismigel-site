@@ -1,4 +1,4 @@
-#+TITLE: How this site is built
+#+TITLE: Building this blog with Org mode, Pandoc, Hugo and GitOps
 #+DATE: 2026-10-02
 #+FILETAGS: hugo:emacs:ci
 
@@ -8,13 +8,12 @@ Next: [[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext
 #+end_quote
 
 I wanted a place to write. I did not want to run a database, or learn a whole content
-system. In the end, I got a few small steps that I mostly understand. I am writing
-them down, so I can remember how they fit together.
+system. So I built the site from a few small steps. I mostly understand them, and I am
+writing them down so I can remember how they fit together.
 
 * Writing
 
-Each post is just a file. The name looks like =org/this-file=. This post starts like
-this:
+Every post is just a file, named like =org/this-file=. This post starts like this:
 
 #+begin_src org
 #+TITLE: How this site is built
@@ -24,21 +23,21 @@ this:
 Body text in Org.
 #+end_src
 
-I write in Org, because I already use Emacs. This way, I never have to deal with the
-messy HTML underneath. There is probably a lot of Org that I do not use. It mostly
-stays out of my way, and that is all I want.
+I write in Org because I already use Emacs. That way I never have to touch the messy
+HTML underneath. There is probably a lot of Org I do not use. It stays out of my way,
+and that is all I want.
 
 * Turning it into a website
 
-A small script turns my files into the format that the website builder wants:
+A small script turns my files into the format the website builder needs:
 
 #+begin_src shell
 pandoc -s -f org -t markdown --wrap=none org/post.org \
   -o content/posts/post/index.md
 #+end_src
 
-I had to add one extra part, so that my tags show up as tags. I copied that part from
-someone else, and I only half understand it. It works, so I have left it alone.
+One extra step makes my tags show up as tags. I copied it from someone else and
+understand only half of it. It works, so I have left it alone.
 
 * Building and shipping
 
@@ -55,9 +54,9 @@ A robot runs the same steps every time I push:
 
 Then ArgoCD sees the new version and updates the site. I never do it by hand.
 
-There is one part I do not follow: how the robot's version number gets back into my
-config, so that ArgoCD can see it. I set it up once, and it works. But I would have to
-read it again before I touch it.
+One part still confuses me: how the robot's version number gets back into my config so
+ArgoCD can see it. I set it up once and it works. But I would have to read it again
+before I touch it.
 
 * Four jobs, four tools
 
@@ -69,9 +68,9 @@ read it again before I touch it.
 | deploy     | GHCR and ArgoCD |
 
 I like that each tool does one job. When something breaks, I can usually tell *where*
-it broke. That has helped me more than anything clever.
+it broke. That has helped me more than any clever trick.
 
-So I had a place to write. Now the real work could start. The first thing that beat me
+Now I had a place to write. The real work could start. The first thing that beat me
 was secrets.
 
 #+begin_quote

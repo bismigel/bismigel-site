@@ -1,4 +1,4 @@
-#+TITLE: Observability is the part I'm actually good at
+#+TITLE: Homelab observability: Prometheus, Grafana and alerts that matter
 #+DATE: 2026-10-28
 #+FILETAGS: homelab:observability:monitoring
 
@@ -17,40 +17,40 @@ as a small brag. It is one.
 * Most homelabs have a dashboard they open twice a year
 
 The usual story goes like this. You install Grafana because it looks good in a
-screenshot. You make one dashboard. Then you never look at it again. It is decoration.
-Nothing on it is connected to anything that would tell *you* when something is wrong. So
-you find out the lab broke the moment you try to use it.
+screenshot. You make one dashboard, then never look at it again. It is decoration.
+Nothing on it is connected to anything that would tell *you* when something is wrong.
+So you find out the lab broke only when you try to use it.
 
 That is the mistake I refuse to make. It is also the mistake I spend my working life
 cleaning up after.
 
 * If it is not in git, it does not exist
 
-The rule for the monitoring is the same as the rule for everything else. It is written
-as files in the repo. And it rebuilds itself from those files every time it starts.
+The rule for the monitoring is the same as the rule for everything else: it is written
+as files in the repo, and it rebuilds itself from those files every time it starts.
 Datasources, the dashboard, the alert rules, and where the alerts go — all of it. I have
 never once logged into Grafana to *build* something. I only log in to look.
 
-That sounds fussy. It is the whole trick. A dashboard you built by hand is one disk
-failure away from gone. And it drifts the first time someone clicks the wrong thing. A
-dashboard in git is a review away from correct. And it survives the machine it happens to
-be running on. This lab is supposed to be nuke-proof. Monitoring is no exception.
+That sounds fussy, but it is the whole trick. A dashboard you built by hand is one disk
+failure away from gone, and it drifts the first time someone clicks the wrong thing. A
+dashboard in git is a review away from correct, and it survives the machine it happens
+to be running on. This lab is supposed to be nuke-proof, and monitoring is no exception.
 
 * The stack, quickly
 
 - *Prometheus* does the collecting. It reads the standard machine metrics from every
-  host. And it reads the cluster's own numbers from inside Kubernetes — how many pods are
+  host, and it reads the cluster's own numbers from inside Kubernetes: how many pods are
   running, how many storage volumes are healthy.
 - *Grafana* is the window: one page, called Homelab Overview.
-- *Alertmanager* is the part that reaches me. It decides which alerts deserve a message,
-  and sends them to a Telegram bot. No email I will ignore, and no dashboard I have to
-  remember to open.
+- *Alertmanager* is the part that reaches me. It decides which alerts deserve a message
+  and sends them to a Telegram bot. There is no email I will ignore, and no dashboard I
+  have to remember to open.
 
 * I only alert on what I would act on
 
 Here is where my day job helps. The beginner move is to alert on everything. Then you get
 buried, and you start ignoring alerts. That is worse than having none. So my list stays
-short, boring, and short. Each alert is something I would actually get out of bed for:
+short, boring, and useful. Each alert is something I would actually get out of bed for:
 
 - a machine has stopped answering;
 - a thing I *meant* to watch has vanished, so I stop trusting the numbers I can still
@@ -80,7 +80,7 @@ seconds later — I grinned like an idiot. That is the difference between a lab 
 * One screen
 
 Homelab Overview is deliberately a single screen. Across the top are the numbers I check
-in a glance: machines answering, alerts firing, pods running, volumes healthy, restarts
+at a glance: machines answering, alerts firing, pods running, volumes healthy, restarts
 in the last hour. Below that, the trends per machine: CPU, memory, disk, load. At the
 bottom, a live table of anything currently firing.
 
@@ -90,7 +90,7 @@ bottom table is empty, the lab is fine, and I can walk away.
 * What I would tell you
 
 If observability is not your thing, steal the shape of this, not the tools. Put your
-monitoring config in git. Alert on few things. Send the alerts somewhere you will
+monitoring config in git. Alert on a few things. Send the alerts somewhere you will
 actually see them. And watch your backups succeed at least once — or better, make them
 scream when they do not.
 

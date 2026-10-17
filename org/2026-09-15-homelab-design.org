@@ -1,4 +1,4 @@
-#+TITLE: The design of the homelab
+#+TITLE: Designing a self-hosted homelab on three old computers
 #+DATE: 2026-09-15
 #+FILETAGS: homelab:design:nixos
 
@@ -8,24 +8,24 @@ Next: [[file:2026-10-02-how-this-site-is-built.org][How this site is built]]
 #+end_quote
 
 I have worked on this homelab for a few months. I am not an expert at any of it.
-Most of what is here, I copied from guides and from other people's configs. Then I
-changed it until it worked. I am writing it down so I do not forget it.
+Most of it I copied from guides and other people's configs, then changed until it
+worked. I am writing it down so I do not forget it.
 
-This post is a tour of what the lab became, and why I made the choices I made.
+This post is a tour of what the lab became, and why I made the choices I did.
 
 * The computers
 
-I have two computers. I did not plan how to share the work between them.
+I have two computers. I did not plan how to split the work between them.
 
 - The first is an AMD Ryzen 5 4600G. I built it from spare parts. It runs my sites
   and almost everything else.
 - The second is an Intel i5-7500T. I bought it used for about $100. I chose it
-  because this CPU can do QuickSync. QuickSync means it can convert video in
+  because this CPU supports QuickSync. QuickSync means it can convert video in
   hardware. It runs the media apps.
 
-Later, a third machine showed up: a 2012 MacBook Pro that I found under a pile of
-cables. It only helps the cluster stay alive. It does not run any apps. I write
-about that in a later post.
+Later, a third machine turned up: a 2012 MacBook Pro I found under a pile of
+cables. It only helps the cluster stay alive and does not run any apps. I write
+about it in a later post.
 
 * NixOS
 
@@ -34,9 +34,9 @@ wanted to change. So I removed it, and put the operating system directly on the
 hardware.
 
 I chose NixOS because I kept forgetting what I had done to my machines. Now the
-whole machine is one file that I can read back. The language is still hard for me.
-I copy a lot of it. But this is the reason I stayed: I can rebuild a machine from
-that one file.
+whole machine is one file I can read back. The language is still hard for me, and
+I copy a lot of it. But this is why I stayed: I can rebuild a machine from that
+one file.
 
 #+begin_src shell
 nix run github:serokell/deploy-rs -- .#<host>
@@ -44,19 +44,19 @@ nix run github:serokell/deploy-rs -- .#<host>
 
 * One cluster, not two
 
-This is the first thing I got wrong. At the start, I had two separate clusters. Each
-box was its own cluster of one machine. Each one had its own copy of everything.
+This is the first thing I got wrong. At the start, I had two separate clusters.
+Each box was its own cluster of one machine, with its own copy of everything.
 
 Then I learned something. A cluster of one machine is just one machine. And a
 cluster of two machines is *worse* than either. Here is why. The cluster keeps its
-memory on all of its machines. To change anything, most of the machines must agree.
-With two machines, you need both. So if one machine dies, the whole cluster stops.
-Two machines are not better than one. They are worse.
+memory on all its machines, and to change anything, most of them must agree. With
+two machines, you need both. So if one dies, the whole cluster stops. Two machines
+are not better than one. They are worse.
 
 So I joined the two machines into one cluster. Later I added the MacBook as a third
 machine. Three is enough to lose one machine and keep going. "More machines" and
 "one cluster" are two different ideas, and I had mixed them up. The merge has its
-own post, later.
+own post later.
 
 * Where things run
 
