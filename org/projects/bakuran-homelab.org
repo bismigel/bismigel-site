@@ -159,15 +159,17 @@ Everything that can be declared is declared. The flow is:
    stays out of sync or unhealthy.
 
 #+begin_src mermaid
-flowchart LR
+flowchart TB
   CH["Change"] --> PR["Pull request"]
-  PR -->|merge| APP["App repo main"]
-  APP --> CI["GitHub Actions"]
-  CI --> IMG["GHCR image"]
-  IMG --> GIT["GitOps repo"]
-  GIT --> ARGO["ArgoCD<br/>sync · self-heal · prune"]
+  PR -->|"review + merge"| APP["App repo main"]
+  APP --> CI["GitHub Actions<br/>test · build · push"]
+  CI --> IMG["GHCR image<br/>immutable tag"]
+  IMG --> GIT["GitOps repo<br/>manifests + image tag"]
+  GIT --> ARGO["ArgoCD<br/>auto-sync · self-heal · prune"]
   ARGO --> K8S["k3s cluster"]
-  INFRA["bakuran-infra"] --> DEP["deploy-rs<br/>NixOS hosts"]
+
+  INFRA["bakuran-infra<br/>NixOS + edge config"] --> DEP["deploy-rs<br/>magic rollback"]
+  DEP --> HOSTS["Hosts<br/>kernel · services · cloudflared"]
 #+end_src
 
 NixOS hosts are separate: they are built from =bakuran-infra= and deployed with
