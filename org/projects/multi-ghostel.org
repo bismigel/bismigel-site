@@ -1,0 +1,49 @@
+#+TITLE: multi-ghostel
+#+DATE: 2026-10-15
+#+SUMMARY: Directory-scoped terminal reuse and a toggleable dedicated window for ghostel in Emacs.
+#+EXTERNALURL: https://github.com/bismigel/multi-ghostel
+#+GITHUB: https://github.com/bismigel/multi-ghostel
+#+FILETAGS: :emacs:tools:
+
+=multi-ghostel= is a small Emacs package that ports the parts of
+[[https://github.com/suonlight/multi-vterm][multi-vterm]] I actually use to
+[[https://github.com/dakra/ghostel][ghostel]]. Most of multi-vterm already ships
+with ghostel, so this only adds what is missing.
+
+* What it adds
+
+- *Directory-scoped reuse* — =multi-ghostel-cwd= keys off =default-directory=
+  (following =cd= via OSC 7), so each directory gets one reusable terminal.
+- *An always-new command* — =multi-ghostel= starts a fresh session, matching
+  multi-vterm's behaviour instead of reusing ghostel's buffer.
+- *A dedicated window* — toggle, open, close and focus a single terminal window
+  without killing the shell running in it.
+
+* Why a separate package
+
+ghostel is a vterm alternative built on the same idea (a real terminal inside
+Emacs). Rather than fork either project, this package composes the existing
+ghostel primitives with the multi-vterm workflow: one command to reuse a
+terminal per project, one to force a new one, and one to get a scratch terminal
+out of the way and back.
+
+* Install
+
+Emacs 29 ships =package-vc-install=:
+
+#+begin_src emacs-lisp
+(package-vc-install "https://github.com/bismigel/multi-ghostel")
+#+end_src
+
+Or with =use-package=:
+
+#+begin_src emacs-lisp
+(use-package multi-ghostel
+  :vc (:url "https://github.com/bismigel/multi-ghostel")
+  :bind (("C-c t" . multi-ghostel-cwd)
+         ("C-c T" . multi-ghostel)
+         ("C-`"   . multi-ghostel-dedicated-toggle)))
+#+end_src
+
+The source and suggested keybindings live on
+[[https://github.com/bismigel/multi-ghostel][GitHub]].

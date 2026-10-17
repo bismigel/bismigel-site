@@ -25,7 +25,10 @@
     {{- end }}
 
     <div class="sidebar-links">
+      {{- if not .IsHome }}
       <a href="{{ "/" | relLangURL }}">{{ partial "icon.html" "home" }}<span>Home</span></a>
+        <a href="{{ "/projects/" | relLangURL }}">{{ partial "icon.html" "list" }}<span>Projects</span></a>
+      {{- end }}
       {{- range site.Params.author.links }}
       <a href="{{ .url }}" target="_blank" rel="me noopener">{{ partial "icon.html" .icon }}<span>{{ .name }}</span></a>
       {{- end }}
