@@ -17,6 +17,17 @@ This is the reference document: the thing I wish existed when I started. It
 describes *what* runs, *why* it is shaped that way, and *how* it fails. Where a
 component has a sharp edge, the edge is written down.
 
+* 0. Why "Bakuran"
+
+In Tagalog, *bakuran* is the yard or enclosure around a house — from *bakod*, a
+fence. It is the space behind the house where things get built, repaired, and
+occasionally taken apart to see how they work.
+
+That is exactly what this is: a fenced-off corner of the house for experiments.
+It is personal, small, and safe to break on purpose. The name is a reminder that
+this is a backyard, not a data centre — useful precisely because it is allowed to
+be a little messy, as long as the messy parts are understood and written down.
+
 * 1. Goals and constraints
 
 The lab exists to be **useful** and to be a place to practise operations on real
