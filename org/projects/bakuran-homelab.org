@@ -41,6 +41,41 @@ failures. The constraints shaped almost every decision:
 | Admin | Workstation | — | NixOS + Home Manager, deploys, dead-man's switch |
 | Edge | Cloudflare | — | Tunnel, DNS, TLS, Zero Trust Access, R2 |
 
+#+begin_src mermaid
+flowchart TB
+  CF["Cloudflare edge<br/>DNS · TLS · Access · Tunnel"]
+  subgraph P["Platform node — Ryzen 5 4600G"]
+    K1["k3s server · etcd"]
+    A["ArgoCD"]
+    I["ingress-nginx"]
+    O["Prometheus · Alertmanager · Grafana"]
+  end
+  subgraph M["Media node — i5-7500T"]
+    K2["k3s server · etcd"]
+    J["Jellyfin"]
+    R["Sonarr · Radarr · Prowlarr · Bazarr"]
+    D["SABnzbd · qBittorrent"]
+    B["Kavita · LazyLibrarian"]
+  end
+  subgraph Q["Quorum + photos — MacBook Pro"]
+    K3["k3s server · etcd (tainted)"]
+    IM["Immich server · Postgres"]
+  end
+  W["Admin workstation<br/>deploy · dead-man's switch"]
+  R2[("Cloudflare R2")]
+  CF --> I
+  I --> A
+  I --> J
+  I --> IM
+  I --> B
+  K1 --- K2
+  K2 --- K3
+  D --> R
+  R --> J
+  B --> J
+  W --> R2
+#+end_src
+
 The taint on the MacBook is deliberate: it is a quorum member and a photo host,
 not a general-purpose worker. Removing it from the cluster would leave two etcd
 members — a worse failure mode than using it carefully.
@@ -67,6 +102,17 @@ The **public edge is Cloudflare Tunnel**, not port forwarding:
 - Minimum TLS 1.2 and Bot Fight Mode are enforced from the same declarative
   edge file that creates the tunnel routes, DNS records and Access apps. A daily
   timer reconciles it so hand edits do not survive.
+
+#+begin_src mermaid
+flowchart LR
+  U["Phones · laptops · TVs"] --> CF["Cloudflare<br/>TLS 1.2+ · Bot Fight Mode"]
+  CF -->|"Access-gated hostnames"| ACC["Zero Trust Access<br/>email OTP"]
+  CF -->|"public hostnames"| T["Tunnel · 2 connectors"]
+  ACC --> T
+  T --> ING["ingress-nginx<br/>loopback-only NodePorts"]
+  ING --> ADM["Admin & media UIs"]
+  ING --> PUB["Jellyfin · Immich · Karakeep · Kavita"]
+#+end_src
 
 * 4. The cluster
 
@@ -105,23 +151,35 @@ archive, not by replicating the disk.
 
 Everything that can be declared is declared. The flow is:
 
-1. An application repo merges to `main`.
+1. An application repo merges to =main=.
 2. GitHub Actions builds a container image and pushes it to GHCR.
 3. The GitOps repo references the image; ArgoCD (auto-sync, self-heal, prune)
    applies it.
 4. Cluster state drift is corrected automatically, and an alert fires if an app
    stays out of sync or unhealthy.
 
-NixOS hosts are separate: they are built from `bakuran-infra` and deployed with
-`deploy-rs`, with magic rollback. The OS is not managed by ArgoCD, and that is
+#+begin_src mermaid
+flowchart LR
+  CH["Change"] --> PR["Pull request"]
+  PR -->|merge| APP["App repo main"]
+  APP --> CI["GitHub Actions"]
+  CI --> IMG["GHCR image"]
+  IMG --> GIT["GitOps repo"]
+  GIT --> ARGO["ArgoCD<br/>sync · self-heal · prune"]
+  ARGO --> K8S["k3s cluster"]
+  INFRA["bakuran-infra"] --> DEP["deploy-rs<br/>NixOS hosts"]
+#+end_src
+
+NixOS hosts are separate: they are built from =bakuran-infra= and deployed with
+=deploy-rs=, with magic rollback. The OS is not managed by ArgoCD, and that is
 intentional — the cluster should not be able to brick its own hosts.
 
 Reproducibility rules that came out of real failures:
 
-- Third-party images are **pinned** (version or digest). `latest` is not a
+- Third-party images are **pinned** (version or digest). =latest= is not a
   version.
 - Renovate proposes dependency and digest updates; a human reviews and merges.
-- Direct pushes to `main` are blocked on the admin workstation by a git hook
+- Direct pushes to =main= are blocked on the admin workstation by a git hook
   (GitHub's branch protection needs a paid plan on private repos — recorded as a
   known limitation).
 - Rebuild steps that involve application UIs are scripted. The book stack has a
@@ -166,10 +224,21 @@ and app passwords are the control. Accounts mirror the family's Jellyfin users.
 * 10. Books
 
 Kavita (reading) and LazyLibrarian (acquisition) run on the media host, sharing
-`/mnt/media/books`.
+=/mnt/media/books=.
+
+#+begin_src mermaid
+flowchart LR
+  LL["LazyLibrarian"] -->|search| NZB["NZBGeek"]
+  NZB -->|NZB| LL
+  LL -->|send| SAB["SABnzbd<br/>category: books"]
+  SAB --> COMP["/downloads/complete/books"]
+  COMP -->|post-process| LIB["/mnt/media/books"]
+  LIB --> KAV["Kavita<br/>scan + metadata"]
+  KAV --> RD["Reader (web/PWA)"]
+#+end_src
 
 The pipeline is: LazyLibrarian searches Newznab (NZBGeek) → sends to SABnzbd
-(category `books`) → post-processes completed downloads into `/books` → Kavita
+(category =books=) → post-processes completed downloads into =/books= → Kavita
 scans the folder.
 
 Sharp edges that are now codified:
@@ -178,15 +247,15 @@ Sharp edges that are now codified:
   enabled or every grab is silently dropped.
 - The directory SAB reports back must exist inside LazyLibrarian, so both
   containers mount the same media tree.
-- New authors' books default to `Skipped`; the setup sets `Wanted` so a new
+- New authors' books default to =Skipped=; the setup sets =Wanted= so a new
   author is actually searched.
 - Kavita's library must have **metadata enabled**, otherwise it derives series
-  from filenames (`Title - Author.epub` → no series) and imports nothing while
+  from filenames (=Title - Author.epub= → no series) and imports nothing while
   logging "Unable to parse any meaningful information".
 - LazyLibrarian re-serialises its config on startup and drops sections it did not
   create. Its configuration is therefore driven through its real UI by a script,
   not by editing files.
-- Kavita's account model needs the `Login` role; without it the account exists
+- Kavita's account model needs the =Login= role; without it the account exists
   but login says "account is disabled". Account lock/unlock toggles that role.
 
 The agent can acquire books through the media MCP: find an author, add them,
@@ -227,8 +296,8 @@ What is watched today:
 - ArgoCD application drift and health (after 15 minutes).
 - Logins to the edge and to Jellyfin/Immich (new sessions, not every request).
 - Backups: unit failure, staleness (newest archive older than 36 hours), and a
-  weekly **restore verification** (decrypt, `gzip -t`, full `tar -t`, SQLite
-  integrity check on the app databases, `gzip -t` on the database dump).
+  weekly **restore verification** (decrypt, =gzip -t=, full =tar -t=, SQLite
+  integrity check on the app databases, =gzip -t= on the database dump).
 - An external dead-man's switch on the admin workstation: if the public status
   endpoint is unreachable three checks in a row, Telegram gets a message; a
   recovery message follows.
@@ -240,11 +309,26 @@ inside the thing it monitors is decoration.
 
 Two daily, age-encrypted streams go to Cloudflare R2:
 
-- `credentials/` — host SSH keys (also the SOPS age identity), kubeconfig and the
+- =credentials/= — host SSH keys (also the SOPS age identity), kubeconfig and the
   Bitwarden machine token. Kept 90 days.
-- `appdata/` — config volumes and databases for the *arrs, Jellyfin, Grafana,
+- =appdata/= — config volumes and databases for the *arrs, Jellyfin, Grafana,
   Prometheus, ZeroClaw, Immich (dump + library), Kavita, LazyLibrarian, Karakeep
   and Meilisearch. Kept 14 days.
+
+#+begin_src mermaid
+flowchart TB
+  A["App configs + databases"] --> D1["Daily appdata archive"]
+  C["Host keys · kubeconfig · BWS token"] --> D2["Daily credentials archive"]
+  D1 --> E["age encryption"]
+  D2 --> E
+  E --> R2[("Cloudflare R2")]
+  R2 --> L["Lifecycle<br/>14d appdata · 90d credentials"]
+  R2 --> V["Weekly restore verification<br/>tar · SQLite integrity · gzip"]
+  R2 --> F["Daily freshness check<br/>older than 36h = stale"]
+  V --> TG["Telegram via Alertmanager"]
+  F --> TG
+  X["External dead-man's switch"] --> TG
+#+end_src
 
 Design decisions:
 
@@ -271,7 +355,7 @@ rebuild plus restore, measured in hours, not minutes.
 - *Supply chain*: pinned digests, a weekly image scan, dependency updates via
   Renovate, and a human merge gate.
 - *Change control*: pull requests only; the cluster self-heals; host changes go
-  through `deploy-rs`.
+  through =deploy-rs=.
 
 Known gaps, stated plainly: no custom rate limiting on the free Cloudflare plan,
 no image signing or SBOM yet, no full-cluster disaster-recovery rehearsal yet,
@@ -281,9 +365,9 @@ and one public login surface (Kavita) that is internet-facing.
 
 A rebuild has three layers:
 
-1. *NixOS hosts* — `bakuran-infra`, deployed with `deploy-rs`; SSH keys, users,
+1. *NixOS hosts* — =bakuran-infra=, deployed with =deploy-rs=; SSH keys, users,
    services and the edge reconciler are declared.
-2. *Cluster* — `bakuran-gitops` in ArgoCD; every namespace, workload, secret
+2. *Cluster* — =bakuran-gitops= in ArgoCD; every namespace, workload, secret
    reference, ingress and alert is a manifest.
 3. *Application state* — restorable from the R2 backup, or recreated by scripts:
    the book stack has one idempotent bootstrap; the media stack has setup scripts
@@ -299,13 +383,13 @@ rebuild boring. That is the goal.
 | Books downloaded but never imported | SAB completed into a path LazyLibrarian did not mount | Mount the same tree in both containers |
 | Every grab silently dropped | SAB download method disabled | Enable it in the UI setup script |
 | Kavita imported nothing | Library metadata disabled; series parsed from filenames | Enable metadata on the library |
-| "account is disabled" on login | Missing `Login` role | Role is part of the invite flow; lock/unlock toggles it |
+| "account is disabled" on login | Missing =Login= role | Role is part of the invite flow; lock/unlock toggles it |
 | Backup "succeeded" with missing data | Failed dumps only logged SKIP | Fail the unit before upload |
 | No backup alert when the timer stopped | OnFailure cannot see a timer that never ran | Daily freshness check + external dead-man's switch |
 | Backup never restored | Trust | Weekly automated restore verification |
 | Drift alerts never fired | Scraped the ArgoCD Service; only the leader has app metrics | Scrape controller endpoints |
 | Config rejected after restart | Manual YAML indentation | Validate configs before merge; prefer generated files |
-| Image pull failures after pinning | Guessed tag (`v0.33.2` vs `0.33.2`) | Verify tags/digests before merging |
+| Image pull failures after pinning | Guessed tag (=v0.33.2= vs =0.33.2=) | Verify tags/digests before merging |
 
 * 18. Known limitations and next
 
