@@ -348,8 +348,7 @@ rebuild plus restore, measured in hours, not minutes.
 * 15. Security posture
 
 - *Secrets* live in Bitwarden Secrets Manager, materialised by External Secrets;
-  host secrets use SOPS/age. Nothing sensitive is in git (a local plaintext
-  credentials file exists on the admin host and is deliberately not versioned).
+  host secrets use SOPS/age. Nothing sensitive is in git.
 - *Edge*: no inbound ports, TLS 1.2 minimum, Bot Fight Mode, Access on admin
   surfaces.
 - *Auth*: each public app uses its own login; accounts are non-admin by default;
