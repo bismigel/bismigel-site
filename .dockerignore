@@ -8,3 +8,4 @@ build.el
 README.md
 AGENTS.md
 .DS_Store
+!deploy/nginx.conf
