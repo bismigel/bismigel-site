@@ -25,20 +25,19 @@
     {{- end }}
 
     <div class="sidebar-links">
-      {{- if not .IsHome }}
       <a href="{{ "/" | relLangURL }}">{{ partial "icon.html" "home" }}<span>Home</span></a>
-        <a href="{{ "/projects/" | relLangURL }}">{{ partial "icon.html" "list" }}<span>Projects</span></a>
-      {{- end }}
-      {{- range site.Params.author.links }}
-      <a href="{{ .url }}" target="_blank" rel="me noopener" title="{{ .name }}" aria-label="{{ .name }}">{{ partial "icon.html" .icon }}</a>
-      {{- end }}
-      <a href="{{ "/index.xml" | relLangURL }}" title="RSS" aria-label="RSS">{{ partial "icon.html" "rss" }}</a>
+      <a href="{{ "/posts/" | relLangURL }}">{{ partial "icon.html" "book" }}<span>Writing</span></a>
+      <a href="{{ "/projects/" | relLangURL }}">{{ partial "icon.html" "list" }}<span>Projects</span></a>
     </div>
   </div>
 
   <div class="sidebar-bottom">
-    <div class="sidebar-links">
-      <a href="{{ "/tags/" | relLangURL }}">{{ partial "icon.html" "tag" }}<span>Tags</span></a>
+    <div class="sidebar-links icon-row">
+      {{- range site.Params.author.links }}
+      <a href="{{ .url }}" target="_blank" rel="me noopener" title="{{ .name }}" aria-label="{{ .name }}">{{ partial "icon.html" .icon }}</a>
+      {{- end }}
+      <a href="{{ "/index.xml" | relLangURL }}" title="RSS" aria-label="RSS">{{ partial "icon.html" "rss" }}</a>
+      <a href="{{ "/tags/" | relLangURL }}" title="Tags" aria-label="Tags">{{ partial "icon.html" "tag" }}</a>
       <button type="button" id="theme-toggle" aria-label="Toggle color theme">
         <span class="icon-sun">{{ partial "icon.html" "sun" }}</span>
         <span class="icon-moon">{{ partial "icon.html" "moon" }}</span>
