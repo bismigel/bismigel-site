@@ -1,4 +1,4 @@
-#+TITLE: Handing the GPU to a pod (and the subtitle trap)
+#+TITLE: Jellyfin QuickSync in Kubernetes (and the subtitle trap)
 #+DATE: 2026-10-24
 #+FILETAGS: homelab:media:kubernetes:jellyfin
 
@@ -11,7 +11,7 @@ Two things broke my media box in the same week. For a while, I did not see that 
 were the same problem.
 
 The first was the GPU. The pod could see the graphics device, but it could not use it.
-The second was subtitles. The file had them, the player refused them, and the stream
+The second was subtitles. The file had them, but the player refused them and the stream
 died. In both cases, the thing was *there*, but not *usable*. The difference was one
 setting, in a place I was not looking. I only understood that later.
 
@@ -19,9 +19,9 @@ These are my notes on both, mostly so I do not have to work them out twice.
 
 * Part one: give the pod the GPU
 
-The media box has an Intel i5 with a built-in GPU. The only real reason this box earns
-its place is QuickSync. It can convert video in hardware. So a Jellyfin stream should
-cost a few percent of the GPU, instead of a whole CPU. I trust that, mostly. It is why
+The media box has an Intel i5 with a built-in GPU. QuickSync is the only real reason
+this box earns its place: it can convert video in hardware. So a Jellyfin stream should
+cost a few percent of the GPU instead of a whole CPU. I trust that, mostly. It is why
 I bought the box.
 
 On the machine, everything *looks* ready. The driver is loaded. The device files exist.
@@ -46,20 +46,20 @@ volumes:
       type: Directory
 #+end_src
 
-The device shows up inside the pod. And then the video still runs on the CPU. ffmpeg
-fills a core and a half. And the driver just says it cannot find a display:
+The device shows up inside the pod, but the video still runs on the CPU. ffmpeg fills
+a core and a half, and the driver says it cannot find a display:
 
 #+begin_src shell
 No VA display found for device /dev/dri/renderD128
 #+end_src
 
-For a while, I believed that message. I went looking at drivers. It does not mean what
-it says. The device is there. The drivers are there. The real problem is this: *seeing a
-device is not the same as being allowed to open it*. What allows it is the device cgroup.
-Not the file permissions. A hostPath mount puts the file inside the pod's filesystem. It
-does nothing to the pod's list of allowed devices. So the open fails. The driver reports
-"no display". And you go hunting in the wrong place. That took me a very long time to
-work out.
+For a while, I believed that message and went looking at drivers. It does not mean what
+it says. The device is there, and the drivers are there. The real problem is this:
+*seeing a device is not the same as being allowed to open it*. What allows it is the
+device cgroup, not the file permissions. A hostPath mount puts the file inside the pod's
+filesystem, but it does nothing to the pod's list of allowed devices. So the open fails,
+the driver reports "no display", and you go hunting in the wrong place. That took me a
+very long time to work out.
 
 I proved it to myself the cheap way. I just opened the file:
 
@@ -87,10 +87,10 @@ containers:
       privileged: true
 #+end_src
 
-That gives it every device on the machine. That is more than the GPU, and more than I
-want. But on a single-purpose media box, it is the one-line answer. And it worked at
+That gives it every device on the machine, which is more than the GPU and more than I
+want. But on a single-purpose media box it is the one-line answer, and it worked at
 once. The tidier way is the Intel GPU device plugin. It registers the device, so you can
-ask for exactly it:
+ask for exactly that device:
 
 #+begin_src yaml
 resources:
@@ -98,9 +98,9 @@ resources:
     gpu.intel.com/i915: 1
 #+end_src
 
-I used privileged first, just to get it working. I told myself I would switch later. I
-have not. I am not sure that is the right call, and I would rather say so than write it
-up like it was a decision.
+I used privileged first, just to get it working, and told myself I would switch later.
+I have not. I am not sure that is the right call, and I would rather say so than write
+it up like it was a decision.
 
 That was only half of it. The container was not the only gate. Jellyfin also has to be
 *told* to use the hardware. By default, it is not. The encoding settings need a type:
@@ -144,8 +144,8 @@ Jellyfin does that for you when it runs its own ffmpeg. You only need to remembe
 * Part two: the subtitle trap
 
 With transcoding finally cheap, I played an episode and hit the next wall. The moment I
-turned subtitles on, the player said they were not supported, and dropped the stream. I
-was confused. I could *see* the subtitles were in the file.
+turned subtitles on, the player said they were not supported and dropped the stream. I
+was confused, because I could *see* the subtitles in the file.
 
 They were. There were four of them, all English. The trouble was the *kind*:
 
@@ -155,15 +155,15 @@ codec_name=hdmv_pgs_subtitle
 codec_name=hdmv_pgs_subtitle
 #+end_src
 
-PGS is an *image* format. Each subtitle is a picture, not text. A browser cannot draw
-that as text on top. The only way to show it is to burn it into the video, frame by
+PGS is an *image* format: each subtitle is a picture, not text. A browser cannot draw
+it as text on top. The only way to show it is to burn it into the video, frame by
 frame, on the CPU. That is exactly the cost I had just spent an afternoon removing.
 Worse, a player that knows it cannot draw the stream sometimes does not fall back to
-burning it in. It just refuses.
+burning it in; it just refuses.
 
-The fix is not to fight the image format. It is to add the text one. An external SRT is
-text. The browser draws it natively. And playback stays a simple copy. That is a job for
-Bazarr. Bazarr was already running. And it turned out it had never downloaded anything,
+The fix is not to fight the image format; it is to add the text one. An external SRT is
+text, the browser draws it natively, and playback stays a simple copy. That is a job for
+Bazarr. Bazarr was already running, but it turned out it had never downloaded anything,
 because I had never set it up.
 
 ** The problems, in the order I hit them
@@ -172,23 +172,23 @@ Setting up Bazarr looked like a form to fill in. It was a small obstacle course.
 failure taught me something.
 
 1. *It could not reach Sonarr.* The error was =Bad Request - Invalid Hostname=. That is
-   not about connecting. It is about the =Host= header. The *arr apps only answer
-   hostnames on their allow-list. The name Bazarr used was not on it. Looking back, it is
-   obvious. But the message says nothing about the *arr config.
-2. *Its settings API ignored me.* I posted a neat JSON blob. It returned success, and
-   changed nothing. The endpoint does not take a blob. It takes single form fields, one
+   not about connecting; it is about the =Host= header. The *arr apps only answer
+   hostnames on their allow-list, and the name Bazarr used was not on it. Looking back,
+   it is obvious, but the message says nothing about the *arr config.
+2. *Its settings API ignored me.* I posted a neat JSON blob, and it returned success but
+   changed nothing. The endpoint does not take a blob; it takes single form fields, one
    per setting. This is the one that taught me that code 204 is not proof that anything
    happened.
 3. *A default profile broke the database.* Setting a default language profile made every
    new series fail with =FOREIGN KEY constraint failed=. The workaround is to leave the
-   default empty, and set the profile on each item. It is a bug in this Bazarr build.
-   But the workaround is small.
+   default empty and set the profile on each item. It is a bug in this Bazarr build, but
+   the workaround is small.
 4. *It thought there was nothing to do.* With the connection working and the provider
    logged in, the search found nothing. Why? Bazarr counted the *embedded* subtitles as
-   already covering the language. The file did have English subtitles. They were just
-   the PGS ones the browser cannot use. So I told it to ignore the embedded and image
-   tracks. Then it treated English as missing, and fetched SRT files. They landed next
-   to the video.
+   already covering the language. The file did have English subtitles, but they were the
+   PGS ones the browser cannot use. So I told it to ignore the embedded and image tracks.
+   Then it treated English as missing and fetched SRT files, which landed next to the
+   video.
 
 This was the same lesson as the GPU, and I did not see it the first time. "The file has
 subtitles" and "the player can use the subtitles" are two different things. The software
@@ -196,13 +196,14 @@ will happily tell you the first is true while failing the second.
 
 ** What it bought
 
-An SRT next to the file makes the whole chain cheap. The stream is no longer converted
-to burn in pictures. It is a simple copy, the text subtitle rides along, and the CPU goes
-back to sleep. The same episode that wanted three cores now barely registers.
+An SRT next to the file makes the whole chain cheap. The stream no longer has to be
+converted to burn in pictures. It is a simple copy, the text subtitle rides along, and
+the CPU goes back to sleep. The same episode that wanted three cores now barely
+registers.
 
-So both halves ended the same way. A device that was there but not allowed. And a
-subtitle that was there but could not be shown. Each one was fixed by finding the one
-gate that mattered.
+In the end, both halves had the same shape: a device that was there but not allowed,
+and a subtitle that was there but could not be shown. Each one was fixed by finding the
+one gate that mattered.
 
 The media finally worked. So, naturally, I started worrying about the front door.
 

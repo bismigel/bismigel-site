@@ -1,16 +1,16 @@
-#+TITLE: What hardening the lab actually taught me
+#+TITLE: Hardening a homelab: backups, drift and silent failures
 #+DATE: 2026-10-17
 #+FILETAGS: :homelab:backups:gitops
 
-I spent a day trying to make the homelab *honest*. Not adding features — the
-opposite. I went looking for the places where the lab was quietly lying to me,
-and then wrote down what I found. Some of it was embarrassing.
+I spent a day trying to make the homelab *honest*. I did not add features; I
+did the opposite. I went looking for the places where the lab was quietly lying
+to me, and wrote down what I found. Some of it was embarrassing.
 
 * A backup you have not restored is a hope
 
-The backups were running every night. They were also, for a while, allowed to
-"skip" a component and still report success. The unit went green; the archive
-was incomplete; nobody knew.
+The backups ran every night. For a while, they were also allowed to "skip" a
+component and still report success. The unit went green, the archive was
+incomplete, and nobody knew.
 
 The fix was not exotic. If any dump is missing, the backup fails *before* it
 uploads anything. Then a daily check asks a different question: is the newest
@@ -33,17 +33,17 @@ Almost every problem I found that day was silent:
   to filenames, could not find a series name, and logged "unable to parse" for
   every book.
 
-None of these produced an error the user would notice. They produced *nothing*.
-The system looked fine and did nothing.
+None of these produced an error anyone would notice. They produced *nothing*.
+The system looked fine, and it did nothing.
 
-My new rule is boring: if a component can fail without anyone noticing, it needs a
-check that notices. Quiet success is not the same as success.
+So my new rule is boring: if a component can fail without anyone noticing, it
+needs a check that notices. Quiet success is not the same as success.
 
 * Paths are interfaces
 
 The path mismatch is the one that still annoys me. Two containers, same host
-storage, different mount points. The download client faithfully reported where it
-put the file; the post-processor faithfully looked somewhere else.
+storage, different mount points. The download client reported where it put the
+file, and the post-processor looked somewhere else.
 
 Filesystem paths between containers are an API. They deserve the same care as an
 HTTP contract: decide the shared tree once, mount it consistently, and write down
@@ -82,9 +82,9 @@ The LazyLibrarian API key must be exactly 32 characters. I generated 40, the app
 accepted it into the config, and the API answered "invalid API key". No error
 about length; just a key that did not work.
 
-That one is a reminder that validation is often implicit and that a config being
-written is not the same as it being valid. I now generate the key at the right
-length, and the setup script stores it where the tools read it.
+That one reminded me that validation is often implicit. A config being written
+is not the same as it being valid. I now generate the key at the right length,
+and the setup script stores it where the tools read it.
 
 * Pin what you do not control
 
