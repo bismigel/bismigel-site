@@ -51,6 +51,7 @@ for f in org/*.org; do
   # Pandoc escapes apostrophes as \' in its markdown output, which then shows up
   # as a literal backslash in the rendered HTML (title and body). Drop the escape.
   sed -i "s/\\\\'/'/g" "$md"
+  sed -i 's/{\.verbatim}//g' "$md"
 
   out="content/posts/$slug/index.md"
   if [ -n "$tags" ]; then
@@ -94,6 +95,7 @@ done
     "$PANDOC" -f org -t markdown --wrap=none "$src" -o "$md"
     rm -f "$src"
     sed -i "s/\\\\'/'/g" "$md"
+    sed -i 's/{\.verbatim}//g' "$md"
 
     out="content/projects/$slug/index.md"
     {
