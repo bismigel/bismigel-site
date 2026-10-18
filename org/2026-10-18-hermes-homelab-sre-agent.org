@@ -74,7 +74,7 @@ command for everything. The Kubernetes server uses a read-only ServiceAccount. T
 server has no delete action. The Cloudflare path is an nginx proxy that only allows GET,
 HEAD and OPTIONS.
 
-The agent still has a shell for `kubectl` and `gh`. That is the part that makes it
+The agent still has a shell for =kubectl= and =gh=. That is the part that makes it
 useful, and the part that makes the guardrails matter.
 
 * How to set it up
@@ -83,10 +83,10 @@ The setup is boring on purpose. None of it is clever, and the boring parts are t
 that keep it safe.
 
 1. **Run it as a workload.** Deploy Hermes as a normal Deployment with a PVC for state at
-   `/opt/data`. The state includes config, sessions, memory and the cron list.
+   =/opt/data=. The state includes config, sessions, memory and the cron list.
 2. **Give it a face.** Connect a Telegram bot with a single-user allowlist, and put the
    dashboard behind Cloudflare Access and basic auth.
-3. **Give it context.** Mount the operating docs and a `SOUL.md` rules file. An agent
+3. **Give it context.** Mount the operating docs and a =SOUL.md= rules file. An agent
    without context is a confident guesser.
 4. **Add MCP servers.** Kubernetes, Prometheus, media and GitHub. Each server gets its
    own credentials and its own limits.
@@ -101,7 +101,7 @@ that keep it safe.
 9. **Back up the state.** The agent's memory and job list are part of the appdata backup.
    A rebuilt agent should remember how the lab works.
 
-The model is DeepSeek `deepseek-chat` through a custom OpenAI-compatible provider. The
+The model is DeepSeek =deepseek-chat= through a custom OpenAI-compatible provider. The
 model is not the interesting part. The tools and the boundaries are.
 
 * The guardrails
@@ -115,7 +115,7 @@ The rules are in layers, and each layer assumes the one above it may fail.
 | GitHub token | Repo-scoped. The branch and pull-request rule is a working rule, not a hard block. |
 | Human review | Destructive work and merges still need me. |
 
-The `SOUL.md` says the same rules in plain language: pull requests only, ask before
+The =SOUL.md= says the same rules in plain language: pull requests only, ask before
 anything destructive, never write secrets to a file or a log. The prompt is the last
 layer, not the first.
 
