@@ -432,7 +432,10 @@ what make the next rebuild boring. That is the goal.
 
 * 18. Known limitations and next
 
-- Branch protection is enforced by a workstation hook, not GitHub (plan limit).
+- Branch protection is on for public repos; private repos on the free plan still
+  rely on the workstation hook.
+- HSTS is not enabled. Rate limiting and MFA on Access are limited by the free
+  plan and the identity provider.
 - Zero-touch rebuild is not complete: bootstrap is one command, not zero.
 - No SLOs or error budgets yet; alerts are symptom-based.
 - No secrets rotation schedule.
