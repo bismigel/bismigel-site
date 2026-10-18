@@ -393,6 +393,7 @@ rebuild plus restore, measured in hours, not minutes.
 - *Network*: ingress-only default deny in the app namespaces. Same namespace and
   ingress-nginx are allowed; cross-namespace rules are explicit. Egress is still
   open.
+  Jellyfin keeps a LAN-only 8096 exception for TVs.
 - *Supply chain*: pinned where practical, a weekly image scan, dependency updates
   via Renovate, and a human merge gate. The *arr stack, some app images and utility
   images are not pinned yet.
