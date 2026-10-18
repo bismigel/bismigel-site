@@ -4,8 +4,8 @@
 #+DESCRIPTION: How a three-node k3s homelab collects metrics with Prometheus, splits them into five Grafana dashboards, and sends the alerts that matter to Telegram.
 
 #+begin_quote
-*Building the lab — Part 8 of 8.* ← [[file:2026-10-27-two-tunnels-are-better-than-one.org][Cloudflare Tunnel HA: two connectors for a safer homelab edge]]
-You are at the end.
+*Building the lab: Part 8 of 8.* ← [[file:2026-10-27-two-tunnels-are-better-than-one.org][Cloudflare Tunnel HA: two connectors for a safer homelab edge]]
+Next: [[file:2026-11-02-homelab-epilogue.org][Homelab epilogue: exposing services and publishing the repo]]
 #+end_quote
 
 The last post made the edge harder to kill. This one makes it visible. To me that is the
@@ -31,7 +31,7 @@ should be something I would get out of bed for. If neither is true, it is noise 
 pretty colours.
 
 There is one more rule, and it is the same rule as the rest of the lab: the monitoring
-is files in git. Datasources, dashboards, alert rules, receivers — all of it. I have
+is files in git. Datasources, dashboards, alert rules, receivers, all of it. I have
 never built a dashboard by clicking in the UI. I only log in to look.
 
 * The stack, with versions
@@ -265,5 +265,6 @@ failure. The lab learned to watch itself. It is not finished, but it is honest, 
 it tells me when something breaks.
 
 #+begin_quote
-*Building the lab — Part 8 of 8.* Previous: [[file:2026-10-27-two-tunnels-are-better-than-one.org][Cloudflare Tunnel HA: two connectors for a safer homelab edge]].
+*Building the lab: Part 8 of 8.* Previous: [[file:2026-10-27-two-tunnels-are-better-than-one.org][Cloudflare Tunnel HA: two connectors for a safer homelab edge]].
+Next: [[file:2026-11-02-homelab-epilogue.org][Homelab epilogue: exposing services and publishing the repo]].
 #+end_quote

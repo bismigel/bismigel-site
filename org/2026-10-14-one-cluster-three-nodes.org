@@ -3,7 +3,7 @@
 #+FILETAGS: homelab:kubernetes:ha
 
 #+begin_quote
-*Building the lab — Part 4 of 8.* ← [[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext]]
+*Building the lab: Part 4 of 8.* ← [[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext]]
 Next: [[file:2026-10-16-deepseek-writes-the-boring-parts.org][Where AI fits in the lab]]
 #+end_quote
 
@@ -63,7 +63,7 @@ One part is still a single copy: its cache. That is a weak point I have not fixe
 
 Being safe is a property of a *service*, not of a box or a cable. A second tunnel
 connector did not make my sites safe; it made the tunnel safe. Once I could say what I
-wanted to survive — a whole machine going away — the design became much clearer. Three
+wanted to survive (a whole machine going away), the design became much clearer. Three
 machines that agree is stranger and harder than two machines that pretend. But it is
 also the first version that is true.
 
@@ -71,6 +71,6 @@ The cluster was finally standing on three legs. With the hard part done, I could
 using it, and I could let a model take over the boring parts.
 
 #+begin_quote
-*Building the lab — Part 4 of 8.* Previous: [[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext]].
+*Building the lab: Part 4 of 8.* Previous: [[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext]].
 Next: [[file:2026-10-16-deepseek-writes-the-boring-parts.org][Where AI fits in the lab]].
 #+end_quote

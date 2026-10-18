@@ -3,7 +3,7 @@
 #+FILETAGS: homelab:media:kubernetes:jellyfin
 
 #+begin_quote
-*Building the lab — Part 6 of 8.* ← [[file:2026-10-16-deepseek-writes-the-boring-parts.org][Where AI fits in the lab]]
+*Building the lab: Part 6 of 8.* ← [[file:2026-10-16-deepseek-writes-the-boring-parts.org][Where AI fits in the lab]]
 Next: [[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one]]
 #+end_quote
 
@@ -208,6 +208,6 @@ one gate that mattered.
 The media finally worked. So, naturally, I started worrying about the front door.
 
 #+begin_quote
-*Building the lab — Part 6 of 8.* Previous: [[file:2026-10-16-deepseek-writes-the-boring-parts.org][Where AI fits in the lab]].
+*Building the lab: Part 6 of 8.* Previous: [[file:2026-10-16-deepseek-writes-the-boring-parts.org][Where AI fits in the lab]].
 Next: [[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one]].
 #+end_quote
