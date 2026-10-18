@@ -4,7 +4,7 @@
 
 #+begin_quote
 *Building the lab: Part 5 of 8.* ← [[file:2026-10-14-one-cluster-three-nodes.org][One cluster, three nodes]]
-Next: [[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]]
+Next: [[file:2026-10-17-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]]
 #+end_quote
 
 For a long time, I did not let a model write code for me. I think I felt I was supposed
@@ -118,5 +118,5 @@ it, and hit a wall.
 
 #+begin_quote
 *Building the lab: Part 5 of 8.* Previous: [[file:2026-10-14-one-cluster-three-nodes.org][One cluster, three nodes]].
-Next: [[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]].
+Next: [[file:2026-10-17-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]].
 #+end_quote

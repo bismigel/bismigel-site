@@ -37,9 +37,19 @@ for f in org/*.org; do
     tags="$(printf '%s' "$csv" | sed -E 's/[^,]+/"&"/g')"
   fi
 
-  # Remove tag keywords before pandoc (it would emit them as raw org blocks)
+  # ---- aliases: "#+ALIASES: /posts/old-slug/, /posts/other/" ----
+  raw_aliases=""
+  if grep -qiE '^#\+aliases:' "$f"; then
+    raw_aliases="$(grep -iE '^#\+aliases:' "$f" | head -1 | sed -E 's/^#\+aliases:[[:space:]]*//I')"
+  fi
+  aliases=""
+  if [ -n "$raw_aliases" ]; then
+    aliases="$(printf '%s' "$raw_aliases" | tr ',' ' ' | tr -s '[:space:]' ' ' | sed -E 's/^ //; s/ $//; s/[^ ]+/"&"/g; s/ /, /g')"
+  fi
+
+  # Remove metadata keywords before pandoc (it would emit them as raw org blocks)
   src="$(mktemp)"; md="$(mktemp)"
-  grep -viE '^#\+(filetags|tags):' "$f" > "$src"
+  grep -viE '^#\+(filetags|tags|aliases):' "$f" > "$src"
   "$PANDOC" -s -f org -t gfm --wrap=none "$src" -o "$md"
   rm -f "$src"
 
@@ -54,8 +64,11 @@ for f in org/*.org; do
   sed -i 's/{\.verbatim}//g' "$md"
 
   out="content/posts/$slug/index.md"
-  if [ -n "$tags" ]; then
-    awk -v t="$tags" 'NR==1 && $0=="---" {print; print "tags: [" t "]"; next} {print}' "$md" > "$out"
+  extra=""
+  [ -n "$tags" ] && extra="tags: [$tags]"
+  [ -n "$aliases" ] && extra="${extra}${extra:+$'\n'}aliases: [$aliases]"
+  if [ -n "$extra" ]; then
+    awk -v e="$extra" 'NR==1 && $0=="---" {print; print e; next} {print}' "$md" > "$out"
   else
     cp "$md" "$out"
   fi
