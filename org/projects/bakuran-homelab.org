@@ -209,6 +209,7 @@ Reproducibility rules that came out of real failures:
   kube-state-metrics, Kepler (power) and the ArgoCD controller endpoints.
 - *Kepler*: per-node power/energy metrics; useful for capacity and for noticing
   a runaway transcode.
+- *Hermes*: in-cluster AI agent and SRE; read-only tools and guardrails.
 - *Homepage*: a single landing page for every service.
 
 * 8. Media platform
@@ -283,19 +284,40 @@ and summarisation use a **local Ollama** model; no bookmark content leaves the
 LAN. The public hostname is not Access-gated because the mobile apps cannot do
 the OTP flow; NextAuth is the gate.
 
-* 12. The agent
+* 12. The agent (Hermes)
 
-ZeroClaw runs in-cluster with MCP servers for Kubernetes, GitHub and the media
-stack (Sonarr/Radarr/Prowlarr/SABnzbd/qBittorrent/Jellyfin/LazyLibrarian). It has
-a context ConfigMap generated from the private operations docs, so it knows the
-topology and the gotchas.
+Hermes is an in-cluster AI agent and the lab's SRE. The namespace and ArgoCD app
+are still named `zeroclaw` for historical reasons; the workload is `hermes`.
 
-Guardrails matter more than capabilities:
+It runs as a Deployment with a 10Gi PVC at `/opt/data` for config, sessions,
+memory and cron. It uses DeepSeek `deepseek-chat`. The dashboard is
+`agent.bismigel.dev` behind Cloudflare Access and basic auth; Telegram uses the
+same bot with a single-user allowlist.
 
-- Cloudflare writes are not available to the agent; reads go through a local
-  read-only proxy.
-- Desired state changes go through pull requests.
-- The agent is told to ask before anything destructive.
+Tools:
+
+- Kubernetes MCP with the `homelab-agent-read` ClusterRole: get, list and watch,
+  with no Secrets.
+- Prometheus MCP for queries.
+- media MCP for the *arr and book stack: add, search and queue, with no delete
+  tools.
+- GitHub MCP plus `gh` with a repo-scoped token: branches and pull requests.
+- Cloudflare reads through a GET-only proxy; writes return 403.
+
+The context docs and `SOUL.md` are on the PVC. The daily 08:00 America/Toronto
+report goes to Telegram. The agent's state is included in the appdata backup.
+
+Guardrails:
+
+- Kubernetes is read-only.
+- Cloudflare writes are blocked outside the agent.
+- The PR-only rule is a working rule, not a hard block; every branch gets review.
+- Destructive work needs human approval, and secrets must not be written to logs.
+- The agent runs inside the cluster, so it shares the failure domain. The external
+  dead-man's switch and Alertmanager remain the primary path.
+
+The design is described in the blog post
+[[https://bismigel.dev/posts/2026-10-18-hermes-homelab-sre-agent/][Hermes as a homelab SRE]].
 
 * 13. Observability and alerting
 
@@ -325,7 +347,7 @@ Two daily, age-encrypted streams go to Cloudflare R2:
 - =credentials/=: host SSH keys (also the SOPS age identity), kubeconfig and the
   Bitwarden machine token. Kept 90 days.
 - =appdata/=: config volumes and databases for the *arrs, Jellyfin, Grafana,
-  Prometheus, ZeroClaw, Immich (dump + library), Kavita, LazyLibrarian, Karakeep
+  Prometheus, Hermes, Immich (dump + library), Kavita, LazyLibrarian, Karakeep
   and Meilisearch. Kept 14 days.
 
 #+begin_src mermaid
@@ -416,6 +438,7 @@ rebuild boring. That is the goal.
 
 | Version | Date | Change |
 |---------+------+--------|
+| 2026-10-18 | 2026-10-18 | Hermes SRE details; current edge monitoring and dashboards |
 | 2026-10-17 | 2026-10-17 | First definitive version: full architecture, backups/verification, security posture, failure modes |
 
 If you are reading this in the future and something here is wrong, the document
