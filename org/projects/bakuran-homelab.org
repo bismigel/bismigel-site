@@ -189,12 +189,15 @@ intentional: the cluster should not be able to brick its own hosts.
 
 Reproducibility rules that came out of real failures:
 
-- Third-party images are **pinned** (version or digest). =latest= is not a
-  version.
-- Renovate proposes dependency and digest updates; a human reviews and merges.
-- Direct pushes to =main= are blocked on the admin workstation by a git hook
-  (GitHub's branch protection needs a paid plan on private repos; recorded as a
-  known limitation).
+- Images are **pinned** when upstream publishes a stable version or digest.
+  Prometheus, Grafana, KSM, node-exporter, Alertmanager, Karakeep, Immich, Kavita
+  and qBittorrent are on fixed versions or digests. The LinuxServer *arr stack and
+  a few other app images track =latest= or =develop=; that is a known
+  reproducibility gap.
+- Renovate proposes updates for the pinned set; a human reviews and merges.
+- Direct pushes to =main= are blocked by a git hook on the admin workstation.
+  Public repos also use branch protection; private repos on the free plan cannot,
+  which is a known limitation.
 - Rebuild steps that involve application UIs are scripted. The book stack has a
   single idempotent bootstrap command that recreates admin accounts, libraries
   and download clients.
@@ -387,8 +390,9 @@ rebuild plus restore, measured in hours, not minutes.
   surfaces.
 - *Auth*: each public app uses its own login; accounts are non-admin by default;
   lockout is enabled.
-- *Supply chain*: pinned digests, a weekly image scan, dependency updates via
-  Renovate, and a human merge gate.
+- *Supply chain*: pinned where practical, a weekly image scan, dependency updates
+  via Renovate, and a human merge gate. The *arr stack, some app images and utility
+  images are not pinned yet.
 - *Change control*: pull requests only; the cluster self-heals; host changes go
   through =deploy-rs=.
 
@@ -408,8 +412,8 @@ A rebuild has three layers:
    the book stack has one idempotent bootstrap; the media stack has setup scripts
    for root folders, clients, indexers and users.
 
-Pinned images, versioned scripts and dated documentation are what make the next
-rebuild boring. That is the goal.
+Pinned images where upstream allows, versioned scripts and dated documentation are
+what make the next rebuild boring. That is the goal.
 
 * 17. Failure modes that shaped the design
 
@@ -439,7 +443,7 @@ rebuild boring. That is the goal.
 
 | Version | Date | Change |
 |---------+------+--------|
-| 2026-10-18 | 2026-10-18 | Hermes SRE details; current edge monitoring and dashboards |
+| 2026-10-18 | 2026-10-18 | Hermes SRE details; current edge monitoring and dashboards; image-pinning status clarified |
 | 2026-10-17 | 2026-10-17 | First definitive version: full architecture, backups/verification, security posture, failure modes |
 
 If you are reading this in the future and something here is wrong, the document

@@ -89,8 +89,9 @@ and the setup script stores it where the tools read it.
 * Pin what you do not control
 
 Using =latest= for someone else's image is a decision to be surprised later. I
-pinned the third-party images, and where a project only publishes a rolling tag, I
-pin the digest instead.
+pinned the images that publish stable versions or digests. The LinuxServer *arr
+stack still tracks =latest= and =develop=; that is a deliberate trade-off and a
+known gap, not a finished job.
 
 The first attempt at pinning was also a lesson: the release tag was =0.33.2=, not
 =v0.33.2=, and I caught it only because I checked the registry before merging.
