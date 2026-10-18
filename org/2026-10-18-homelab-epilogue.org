@@ -2,7 +2,7 @@
 #+DATE: 2026-10-18T13:00:00-04:00
 #+ALIASES: /posts/2026-11-02-homelab-epilogue/
 #+FILETAGS: homelab:security:github
-#+DESCRIPTION: What I checked before pointing real domains at the lab, how Hermes became the SRE, and what I need to do before making the cluster repos public.
+#+DESCRIPTION: What I checked before pointing real domains at the lab and before making the cluster repos public: what is exposed, what the fear changed, and what still is not finished.
 
 #+begin_quote
 *Building the lab: epilogue.* (Not part of the numbered series.)
@@ -87,79 +87,8 @@ improvement, because a specific fear can become a check.
 None of this makes the lab unhackable. It makes a failure smaller and louder. That is
 the goal.
 
-* The agent became the SRE
-
-Somewhere between the second connector and the fifth dashboard, the lab got an operator.
-Hermes is an AI agent that runs inside the cluster. It is not a chat window on a web
-page. It has tools, a schedule and a narrow set of permissions.
-
-It is the first responder in the small sense: it watches, it checks, it explains, and it
-writes down what it found. It does not merge its own changes, and it does not get to
-touch Cloudflare.
-
-** What it does
-
-- Every morning at 08:00 it checks nodes, pods, restarts, ArgoCD sync and health,
-  firing alerts, filesystem use and memory trends. It sends a short report to
-  Telegram.
-- When I ask, it can look at a deployment, read pod logs, query Prometheus, check the
-  ArgoCD state, inspect the media queue, or search the book stack.
-- It can open a pull request for a fix. The rule is branches and pull requests, never
-  main.
-- It can add a series or a book to the media queue. The media tools have no delete
-  action, so it cannot remove anything.
-- It can read Cloudflare state (tunnel, zones, DNS, certificates, Access apps) through
-  the guardrail proxy. It cannot change any of it.
-
-** How I set it up
-
-The setup is boring on purpose:
-
-1. Run Hermes as a normal Deployment with a PVC for state. It lives in the same cluster
-   it watches.
-2. Give it a model, a Telegram bot, and a dashboard behind Cloudflare Access and basic
-   auth.
-3. Mount the operating docs and a SOUL.md with the rules. The context is part of the
-   setup, not an afterthought.
-4. Add MCP servers for Kubernetes, Prometheus, media and GitHub. Each server is the
-   boundary for a set of actions.
-5. Give it a dedicated ServiceAccount with a read-only ClusterRole: get, list and
-   watch, and no Secrets.
-6. Put the Cloudflare token behind an nginx sidecar that only allows GET, HEAD and
-   OPTIONS. Every write returns 403.
-7. Give GitHub a repo-scoped token. The rule is branches and pull requests, never main.
-8. Seed a daily cron job. The job is a prompt, not a shell script, so it can adapt to
-   what it finds.
-9. Back up `/opt/data` with the rest of the appdata. The agent's memory and job list
-   are state too.
-
-** The guardrails
-
-The rules are in layers, and each layer assumes the one above it may fail:
-
-| Layer | Limit |
-|-------+-------|
-| Kubernetes RBAC | The agent can read the cluster but cannot change it. No Secrets. |
-| Cloudflare proxy | State-changing requests are blocked with 403 before they leave the pod. |
-| GitHub token | Repo-scoped. The branch and pull-request rule is a working rule, not a hard block. |
-| Human review | Destructive work and merges still need me. |
-
-The SOUL file says the same rules in plain language: pull requests only, ask before
-anything destructive, never write secrets to a file or a log. The guardrails are not
-just a prompt. The prompt is the last layer, not the first.
-
-The hard part is not deployment. The hard part is trust. I treat the agent as a
-privileged operator. It runs in the cluster, it can read a lot, and it has a shell. The
-read-only Kubernetes role and the GET-only Cloudflare proxy are hard limits. The GitHub
-rule is a working rule, not a hard limit.
-
-A repo-scoped token can still push to main if the agent decides to. That is why every
-branch and pull request gets a human look. The technical blocks are on the cluster and
-the edge, not on the model's judgement.
-
-Then the old problem returns: the agent runs inside the lab. If the lab is down, the
-agent is down too. That is why the dead-man's switch lives outside, and why Alertmanager
-still messages me first. The agent is a second pair of eyes, not the only one.
+The agent is a separate story. I wrote about what it does, how it is set up and where
+the guardrails are: [[file:2026-10-18-hermes-homelab-sre-agent.org][Hermes as a homelab SRE]].
 
 * Publishing the repo is another kind of exposure
 
