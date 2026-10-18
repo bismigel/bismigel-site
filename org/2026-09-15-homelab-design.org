@@ -7,11 +7,13 @@
 Next: [[file:2026-10-02-how-this-site-is-built.org][How this site is built]]
 #+end_quote
 
-I have worked on this homelab for a few months. I am not an expert at any of it.
-Most of it I copied from guides and other people's configs, then changed until it
-worked. I am writing it down so I do not forget it.
+I have run this homelab for a few months. It is not a production platform, but it is
+built like one: declarative hosts, one GitOps control plane, a three-node etcd
+quorum, and a small Cloudflare edge.
 
-This post is a tour of what the lab became, and why I made the choices I did.
+I am a traditional sysadmin. Linux, networking and observability are the familiar
+parts. Kubernetes, GitOps and the cloud-native tooling are what I am learning here.
+This post is the design and the trade-offs behind it.
 
 * The computers
 
@@ -33,10 +35,10 @@ I started with Proxmox. I did not like the extra layer between me and the thing 
 wanted to change. So I removed it, and put the operating system directly on the
 hardware.
 
-I chose NixOS because I kept forgetting what I had done to my machines. Now the
-whole machine is one file I can read back. The language is still hard for me, and
-I copy a lot of it. But this is why I stayed: I can rebuild a machine from that
-one file.
+I chose NixOS because I wanted the host state to be reviewable and reproducible.
+The machine is a set of declarative modules, and a rebuild produces the same
+system. The module language still sends me to the manual, but the state is not
+hidden in shell history.
 
 #+begin_src shell
 nix run github:serokell/deploy-rs -- .#<host>
@@ -68,20 +70,21 @@ When I write it down, it looks obvious. It took me a while to get there.
 
 * Kubernetes
 
-To be honest, plain Docker would have worked fine. I chose Kubernetes because I
-wanted to learn it. I still do not know it well.
+Plain Docker would have run these services. I chose Kubernetes because I wanted one
+scheduler, one GitOps surface and one place to reason about health. Kubernetes is
+the part I am still learning, and the lab is small enough that I can see the whole
+control plane.
 
-Each box runs k3s. k3s comes with two extra parts (Traefik and a load balancer). I
-did not understand them, so I turned them off. I used ingress-nginx instead, because
-I could follow what it does. Maybe that was the wrong choice. But it is a choice I
-can read.
+Each box runs k3s. k3s ships Traefik and ServiceLB; I disabled both and run
+ingress-nginx. That is not a judgement on Traefik. It is one ingress controller with
+explicit config, and I can trace a request through it.
 
 * ArgoCD
 
-The state I want for the cluster lives in git. ArgoCD makes the cluster match it. I
-understand it at a high level. One ArgoCD runs *inside* the cluster and manages the
-whole thing. I cannot tell you what happens if it breaks. That is one reason the
-control plane and the storage have backups.
+The desired state lives in git. One in-cluster ArgoCD reconciles it. GitOps was the
+biggest mental shift for me: the cluster pulls toward git, instead of me pushing
+commands at it. The failure mode is a control-plane outage, which is why the hosts
+are rebuildable, app state goes to R2, and the cluster config lives in git.
 
 The layout looks like this:
 
@@ -92,37 +95,43 @@ bakuran-gitops/
   manifests/<app>/...           # the files the apps point at
 #+end_example
 
-One part is clever: it finds new machines on its own. I copied it from an example. I
-cannot fully explain how it works.
+The root Application points at the `applications/` tree. A second ApplicationSet
+generates the per-node exporters, so a new node is picked up without a manual
+registration.
 
-When I change an app, this happens:
+When I change an app:
 
-1. I push the code.
-2. GitHub Actions builds it and pushes a container image.
-3. It opens a pull request that changes one version number.
-4. ArgoCD sees the merge and updates the running app.
+1. I push to the app repo's `main`.
+2. GitHub Actions builds the image and pushes it to GHCR with an immutable tag
+   (`main-<UTC timestamp>-<sha>`).
+3. The workflow rewrites the image tag in the Kubernetes manifest, pushes a branch
+   and opens a pull request.
+4. ArgoCD reconciles the merged commit and rolls the Deployment.
 
-I like this. The workflow never gets the keys to my cluster. It can only change
-one number, and I approve the change.
+The CI side is familiar. The part I had to learn is the handoff: CI writes only an
+image tag to git, and ArgoCD owns the cluster. The workflow has `contents: write`
+and `packages: write`, and no kubeconfig. This site auto-merges the tag PR; the app
+template pushes the bump directly. Either way, the manifest is the only interface
+between CI and the cluster.
 
 * Secrets
 
-The short version: plain text never goes into git. Secrets for the machines (like the
-tunnel credentials) stay encrypted in the NixOS repo. I use a tool called SOPS for
-that. Secrets for the cluster live outside the lab, in Bitwarden. A tool called
-External Secrets Operator puts them into the cluster. I tried two worse setups first.
-That is the post after next.
+Plain text never goes into git. Host secrets (tunnel credentials, keys) are
+SOPS-encrypted with age in the NixOS repo. Cluster secrets live in Bitwarden
+Secrets Manager and are materialised by External Secrets Operator. I tried two
+worse setups first; that is the post after next.
 
 * The front door
 
-Nothing is open to the internet directly. A tunnel makes an outgoing connection to
-Cloudflare. That is how the outside world reaches my sites. Access sits in front of
-it. So a request must belong to someone before it gets in. I understand this part the
-least, and I trust it the most.
+Nothing is published directly. `cloudflared` makes outbound connections to
+Cloudflare, and the tunnel routes hostnames to the in-cluster ingress. Access
+authenticates the admin surfaces; public apps use their own auth. The origin is
+reachable only through the tunnel, which is what makes the Access identity header
+trustworthy.
 
 * How it fits together
 
-Long lists of words are hard for me to keep in my head. So here it is as a picture:
+The topology, in one picture:
 
 #+begin_src mermaid
 flowchart TB

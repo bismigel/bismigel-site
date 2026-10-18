@@ -7,9 +7,10 @@
 Next: [[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext]]
 #+end_quote
 
-I wanted a place to write. I did not want to run a database, or learn a whole content
-system. So I built the site from a few small steps. I mostly understand them, and I am
-writing them down so I can remember how they fit together.
+I wanted a place to write without running a database or adopting a full CMS. The site
+is a small pipeline with four stages: Org source, Pandoc conversion, a Hugo build and
+a container image that ArgoCD deploys. The CI part is familiar from my sysadmin work.
+The GitOps handoff was the new part for me.
 
 * Writing
 
@@ -23,9 +24,8 @@ Every post is just a file, named like =org/this-file=. This post starts like thi
 Body text in Org.
 #+end_src
 
-I write in Org because I already use Emacs. That way I never have to touch the messy
-HTML underneath. There is probably a lot of Org I do not use. It stays out of my way,
-and that is all I want.
+I write in Org because I already use Emacs. The source stays plain text, and I never
+hand-edit the generated HTML.
 
 * Turning it into a website
 
@@ -36,8 +36,8 @@ pandoc -s -f org -t markdown --wrap=none org/post.org \
   -o content/posts/post/index.md
 #+end_src
 
-One extra step makes my tags show up as tags. I copied it from someone else and
-understand only half of it. It works, so I have left it alone.
+The converter also maps `#+FILETAGS` to a Hugo `tags` list in the front matter, and
+`#+ALIASES` to old-URL redirects. That is the only custom logic in the pipeline.
 
 * Building and shipping
 
@@ -45,18 +45,20 @@ understand only half of it. It works, so I have left it alone.
 hugo --minify    # Org -> HTML into public/
 #+end_src
 
-GitHub Actions runs the same steps every time I push:
+GitHub Actions runs on every push to `main`:
 
-1. turn the files into the website format
-2. run the website builder
-3. put the result into a small web server image
-4. save the image and change the version number
+1. `scripts/convert.sh` turns `org/*.org` into `content/posts/*/index.md` with
+   Pandoc.
+2. `hugo --minify` builds `public/`.
+3. The workflow builds the nginx image and pushes it to GHCR with a tag like
+   `main-20261018-124657-c468611`.
+4. It rewrites the image tag in `deploy/k8s/deployment.yaml`, pushes a branch and
+   opens a pull request. This repo auto-merges that PR.
 
-Then ArgoCD sees the new version and updates the site. I never do it by hand.
-
-One part still confuses me: how the workflow's version number gets back into my config so
-ArgoCD can see it. I set it up once and it works. But I would have to read it again
-before I touch it.
+ArgoCD watches `main`, sees the manifest commit and syncs the Deployment. The
+workflow has `contents: write` and `packages: write`, and no kubeconfig. Its only
+path into the cluster is one image tag in git. A human gate would be a one-line
+change: remove the `gh pr merge` step and require review on the tag PR.
 
 * Four jobs, four tools
 
