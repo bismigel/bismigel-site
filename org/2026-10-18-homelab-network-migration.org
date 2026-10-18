@@ -1,0 +1,248 @@
+#+TITLE: Homelab network migration: NetworkPolicies, egress and a Cilium rollback
+#+DATE: 2026-10-18T18:00:00-04:00
+#+FILETAGS: homelab:kubernetes:network:cilium
+#+DESCRIPTION: A real network migration in a three-node k3s homelab: ingress and egress policies, SLOs, a single-node Cilium test that worked, and a multi-node Cilium retry that did not.
+
+#+begin_quote
+*Building the lab: afterword.* (Not part of the numbered series.)
+← [[file:2026-10-18-homelab-epilogue.org][Homelab epilogue: exposing services and publishing the repo]]
+#+end_quote
+
+The epilogue was about deciding what to show. This post is about changing the
+network underneath it.
+
+I wanted to take the useful ideas from a smaller reference homelab and apply
+them to Bakuran: isolate application namespaces, close egress where possible,
+split the admin path from the public path, and add SLOs. I also wanted Cilium
+and Hubble for flow visibility.
+
+Most of that is live. The Cilium part is not. That failure is the most useful
+part of the story.
+
+* What the network looked like before
+
+#+begin_src mermaid
+flowchart LR
+  U["Internet"] --> CF["Cloudflare edge<br/>TLS, Access, Tunnel"]
+  CF --> T["Tunnel<br/>2 connectors"]
+  T --> I["ingress-nginx"]
+  I --> A["apps"]
+  I --> B["books"]
+  I --> D["default / Jellyfin"]
+  I --> DL["downloads"]
+  I --> H["homepage"]
+  I --> IM["immich"]
+  I --> K["karakeep"]
+  I --> M["media"]
+  I --> Z["zeroclaw"]
+  A <--> B
+  A <--> M
+  M <--> DL
+  Z <--> M
+  LAN["LAN TV"] --> D
+#+end_src
+
+The only boundary was the edge. Inside the cluster, every pod could reach every
+other pod. Jellyfin was reachable on the LAN through hostPort 8096.
+
+* What it looks like now
+
+#+begin_src mermaid
+flowchart LR
+  U["Internet"] --> CF["Cloudflare edge<br/>TLS, Access, Tunnel"]
+  CF --> T["Tunnel<br/>2 connectors"]
+  T --> I["ingress-nginx"]
+  I --> A["apps"]
+  I --> B["books"]
+  I --> D["default / Jellyfin"]
+  I --> DL["downloads"]
+  I --> H["homepage"]
+  I --> IM["immich"]
+  I --> K["karakeep"]
+  I --> M["media"]
+  I --> Z["zeroclaw"]
+  M --> B
+  M --> D
+  M --> DL
+  MON["monitoring"] --> D
+  MON --> IM
+  Z --> M
+  LAN["LAN 192.168.2.0/24"] -->|TCP 8096| D
+  X["other pods"] -.->|denied| A
+#+end_src
+
+Every application namespace now has an ingress-only NetworkPolicy. Same
+namespace and ingress-nginx are allowed. Cross-namespace rules are explicit.
+Egress is now default-deny as well, with DNS, local dependencies and public
+HTTP(S) allowed only where needed.
+
+* The one-shot rollout
+
+I did not roll this out one namespace at a time. I took a restore point first:
+
+- git tags for the main repositories;
+- an etcd snapshot;
+- fresh credentials and appdata backups in R2.
+
+Then I applied the policies to the application namespaces in one pull request.
+The restore point was the permission to move quickly.
+
+The first pilot was Karakeep. It had no Prometheus scrape annotations, no
+cross-namespace dependencies and no probes that could be blocked. The policy
+allowed same-namespace traffic and ingress-nginx only. The public page returned
+200, Meilisearch worked, and a pod outside the namespace was refused.
+
+Then the rest: apps, books, default, downloads, homepage, immich, karakeep,
+media and zeroclaw.
+
+* What broke, and what it taught me
+
+** Jellyfin on the LAN
+
+The TV uses `http://192.168.2.81:8096`, not the public hostname. The first
+policy blocked the hostPort path. The fix was a narrow exception: the LAN CIDR,
+TCP 8096 only, in the `default` namespace. The public path still goes through
+the tunnel.
+
+** Login watchers and NAT
+
+The Immich and Jellyfin login watchers started failing after the rollout. Two
+things were happening:
+
+1. When a watcher landed on the media node, NAT masked the pod source IP. The
+   destination policy saw a node IP, not the monitoring namespace.
+2. A new pod could connect before kube-router had programmed the policy.
+
+The fix was to pin both watchers to the platform node and wait five seconds
+before the first query. They now complete on schedule.
+
+** The policy programming race
+
+The first egress test from the `apps` namespace showed a false success. The pod
+started before the policy was programmed. A second test, after the policy had
+settled, was blocked. The lesson is simple: wait and test again before believing
+a policy is live.
+
+* Egress, not just ingress
+
+Ingress was the easy half. Egress has more destinations:
+
+- DNS
+- the Kubernetes API
+- local services
+- public metadata and indexers
+- Ollama on the LAN
+- GitHub, DeepSeek, Telegram and Cloudflare
+
+I started with the static and API apps. They need DNS and same-namespace
+traffic, and nothing else. Then I moved to Karakeep and Immich. Karakeep kept
+Ollama and public HTTP(S); Immich kept public HTTP(S) for metadata and models.
+The media stack kept its local dependencies and public indexers. The downloaders
+kept public internet for trackers and Usenet.
+
+Private ranges are denied except named dependencies. Egress is still open for
+the infrastructure namespaces; that is deliberate.
+
+* SLOs
+
+The monitoring stack now has seven public probes. The blackbox exporter runs
+inside the cluster and probes the public URL through Cloudflare and back through
+the tunnel. That measures the path a user takes, not just a pod.
+
+The target is 99.5% availability over 7 days, with a 0.5% error budget. The
+recording rules track 5m, 1h, 6h and 7d ratios, and the alerting rules cover
+fast and slow burn. The Homelab SLOs dashboard shows the budget, per-target
+availability and probe duration.
+
+The SLOs also caught a real bug: `alerts.yml` had been invalid since the
+Cloudflare alert group was added. Prometheus rejected the file, kept the old
+rules, and never loaded the edge or SLO alerts. The reload endpoint returned
+500, but I had not checked it. Fixing the YAML indentation fixed both the edge
+alerts and the SLO rules.
+
+* The Cilium test cluster
+
+I did not want to test a CNI swap on the production cluster again without a
+smaller proof. So I built a single-node k3s VM with Flannel disabled:
+
+- k3s 1.36 in a QEMU VM;
+- `--flannel-backend=none` and `--disable-network-policy`;
+- Cilium 1.20.3 with `kubeProxyReplacement=false`;
+- `ipam.mode=kubernetes`;
+- CNI config in `/etc/cni/net.d` and binaries in `/opt/cni/bin`.
+
+The first install had the same CNI path problem as production. Once the paths
+were right, the test cluster worked:
+
+- pod to ClusterIP: 401 from the API server;
+- pod to the internet: 301 from the test URL;
+- hostPort: 200 after adding the `portmap` plugin to the Cilium CNI config.
+
+That last part matters. Cilium's default CNI config does not include `portmap`,
+and Jellyfin's LAN TV path needs hostPort. I added a `portmap` plugin through a
+custom CNI ConfigMap.
+
+* The production retry
+
+The single-node test proved the config. I retried Bakuran with the same Cilium
+version, a clean Flannel-free boot, and the custom CNI config. The nodes became
+Ready. Cilium agents ran. Cross-node pod-to-pod traffic worked.
+
+Then the same failure returned:
+
+- pods could not reach ClusterIP services;
+- pods could not reach the Kubernetes API;
+- pods could not reach the internet.
+
+A pod could reach another pod directly, including cross-node. It could not reach
+the node IP or anything outside. The test cluster did not reproduce that, so the
+remaining difference is the multi-node k3s setup, not the policy set.
+
+I rolled back:
+
+- removed the Cilium release and CNI files;
+- restored Flannel;
+- deployed the k3s flags back;
+- removed stale Cilium iptables and policy-routing rules;
+- rebooted the nodes;
+- remounted the NFS media branches on `.81` and restarted Kavita and
+  LazyLibrarian.
+
+The uninstall had left stale rules that broke etcd leader election. That was the
+scariest part. The etcd data was intact. The rules were not.
+
+* Lessons
+
+1. **A CNI swap needs a disposable cluster.** Single-node validation is useful,
+   but it does not prove a multi-node path.
+2. **Pod-to-pod working is not enough.** Test ClusterIP, NodePort, the API,
+   external egress and hostPort.
+3. **CNI uninstall is not clean.** Check iptables, ip rules and BPF state before
+   restoring the old CNI.
+4. **Egress is harder than ingress.** Ingress has a closed source set; egress
+   has a long destination list.
+5. **HostPort needs explicit CNI support.** Cilium's CNI config needed `portmap`
+   for the TV path.
+6. **Reboot order matters for NFS.** If `.81` boots before `.82`, the media
+   branches fail to mount and the books pods stay in `ContainerCreating`.
+7. **A false-positive test is worse than no test.** Wait for policy programming
+   before concluding that a rule works.
+8. **Validate alert rules before reloading.** A YAML error kept Prometheus on
+   the old rule set and hid the new alerts.
+
+* What is next
+
+Cilium and Hubble are deferred. The native NetworkPolicy work, egress policies,
+SLOs, the admin ingress controller and the golden path are in place. The next safe steps are:
+
+- decide whether to retry Cilium with kube-proxy replacement or CNI chaining;
+- test that path in a multi-node disposable cluster;
+- finish the trust-zone switch after the Cloudflare route change;
+- keep the DR rehearsal on the list.
+
+The lab is not hiding from the network any more. It is just not ready to hand
+the packet path to Cilium yet.
+
+#+begin_quote
+*Building the lab: afterword.* Previous: [[file:2026-10-18-homelab-epilogue.org][Homelab epilogue: exposing services and publishing the repo]].
+#+end_quote
