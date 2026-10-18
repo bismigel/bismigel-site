@@ -257,9 +257,9 @@ phone that buzzes when something crosses a line. The edge is monitored from the 
 as well as the inside. The backups tell on themselves. The media pool warns before an
 import fails, not after.
 
-I am still not an expert on most of this lab. But observability is the part I know, and
-it shows in the shape: pull, don't push; alert on actions; split the dashboards by
-question; and put all of it in git.
+This lab is not a production platform, but observability is the part I do for a
+living. The shape is deliberate: pull, don't push; alert on actions; split the
+dashboards by question; and put all of it in git.
 
 That is the story so far. Two boxes became three. The edge learned to survive one
 failure. The lab learned to watch itself. It is not finished, but it is honest, and now
