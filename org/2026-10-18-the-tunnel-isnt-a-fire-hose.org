@@ -1,11 +1,12 @@
 #+TITLE: Why a Cloudflare Tunnel is not a fire hose for Jellyfin
-#+DATE: 2026-10-30
+#+DATE: 2026-10-18T11:00:00-04:00
+#+ALIASES: /posts/2026-10-30-the-tunnel-isnt-a-fire-hose/
 #+FILETAGS: homelab:cloudflare:media
 
 #+begin_quote
 *Building the lab*: a side story. (Not part of the numbered series.)
-← [[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one]] ·
-[[file:2026-10-28-observability-is-the-part-im-good-at.org][Observability is the part I'm good at]]
+← [[file:2026-10-17-two-tunnels-are-better-than-one.org][Two tunnels are better than one]] ·
+[[file:2026-10-18-observability-is-the-part-im-good-at.org][Observability is the part I'm good at]]
 #+end_quote
 
 I did a stupid thing, and I am writing it down because the stupid thing had a useful
@@ -99,6 +100,6 @@ Because the slow way had a nice lock on it. The lock looked safe, so I held the 
 and waved it through.
 
 #+begin_quote
-*Building the lab*: a side story. ← [[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one]] ·
-[[file:2026-10-28-observability-is-the-part-im-good-at.org][Observability is the part I'm good at]]
+*Building the lab*: a side story. ← [[file:2026-10-17-two-tunnels-are-better-than-one.org][Two tunnels are better than one]] ·
+[[file:2026-10-18-observability-is-the-part-im-good-at.org][Observability is the part I'm good at]]
 #+end_quote

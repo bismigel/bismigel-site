@@ -57,6 +57,6 @@ make build            # convert + hugo build must succeed
 ## Notes
 
 - Pandoc maps `#+TITLE`/`#+DATE` to Hugo YAML front matter automatically.
-- `#+DESCRIPTION` → `description`; add `tags` via a `#+FILETAGS:` or by editing the
-  generated front matter step in `scripts/convert.sh` if needed.
+- `#+DESCRIPTION` → `description`; add `tags` via a `#+FILETAGS:`. `#+ALIASES:`
+  becomes Hugo `aliases`, so renamed posts keep redirects from their old URLs.
 - `enableGitInfo: true` means CI checks out with `fetch-depth: 0`.

@@ -1,10 +1,11 @@
 #+TITLE: Cloudflare Tunnel HA: two connectors for a safer homelab edge
-#+DATE: 2026-10-27
+#+DATE: 2026-10-17T20:00:00-04:00
+#+ALIASES: /posts/2026-10-27-two-tunnels-are-better-than-one/
 #+FILETAGS: homelab:kubernetes:cloudflare
 
 #+begin_quote
-*Building the lab: Part 7 of 8.* ← [[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]]
-Next: [[file:2026-10-28-observability-is-the-part-im-good-at.org][Homelab observability: Prometheus, Grafana and five focused dashboards]]
+*Building the lab: Part 7 of 8.* ← [[file:2026-10-17-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]]
+Next: [[file:2026-10-18-observability-is-the-part-im-good-at.org][Homelab observability: Prometheus, Grafana and five focused dashboards]]
 #+end_quote
 
 I only started to worry about the front door after something else broke. Then I saw how
@@ -102,6 +103,6 @@ With the edge solid, I could relax. But a lab you cannot watch is a lab you cann
 trust. So the last part is about the thing I am actually good at.
 
 #+begin_quote
-*Building the lab: Part 7 of 8.* Previous: [[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]].
-Next: [[file:2026-10-28-observability-is-the-part-im-good-at.org][Homelab observability: Prometheus, Grafana and five focused dashboards]].
+*Building the lab: Part 7 of 8.* Previous: [[file:2026-10-17-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]].
+Next: [[file:2026-10-18-observability-is-the-part-im-good-at.org][Homelab observability: Prometheus, Grafana and five focused dashboards]].
 #+end_quote
