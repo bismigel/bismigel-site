@@ -95,22 +95,22 @@ bakuran-gitops/
   manifests/<app>/...           # the files the apps point at
 #+end_example
 
-The root Application points at the `applications/` tree. A second ApplicationSet
+The root Application points at the =applications/= tree. A second ApplicationSet
 generates the per-node exporters, so a new node is picked up without a manual
 registration.
 
 When I change an app:
 
-1. I push to the app repo's `main`.
+1. I push to the app repo's =main=.
 2. GitHub Actions builds the image and pushes it to GHCR with an immutable tag
-   (`main-<UTC timestamp>-<sha>`).
+   (=main-<UTC timestamp>-<sha>=).
 3. The workflow rewrites the image tag in the Kubernetes manifest, pushes a branch
    and opens a pull request.
 4. ArgoCD reconciles the merged commit and rolls the Deployment.
 
 The CI side is familiar. The part I had to learn is the handoff: CI writes only an
-image tag to git, and ArgoCD owns the cluster. The workflow has `contents: write`
-and `packages: write`, and no kubeconfig. This site auto-merges the tag PR; the app
+image tag to git, and ArgoCD owns the cluster. The workflow has =contents: write=
+and =packages: write=, and no kubeconfig. This site auto-merges the tag PR; the app
 template pushes the bump directly. Either way, the manifest is the only interface
 between CI and the cluster.
 
@@ -123,7 +123,7 @@ worse setups first; that is the post after next.
 
 * The front door
 
-Nothing is published directly. `cloudflared` makes outbound connections to
+Nothing is published directly. =cloudflared= makes outbound connections to
 Cloudflare, and the tunnel routes hostnames to the in-cluster ingress. Access
 authenticates the admin surfaces; public apps use their own auth. The origin is
 reachable only through the tunnel, which is what makes the Access identity header

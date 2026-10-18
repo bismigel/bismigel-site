@@ -52,7 +52,10 @@ and observability engineer who is learning DevOps, Kubernetes and modern SRE.
    `config/_default/` (Omegion requires `enableGitInfo`, `searchindex` output,
    `markup.toml`, `taxonomies.toml`; see the theme's exampleSite).
 5. **Never hand-edit the image tag** in `deploy/k8s/deployment.yaml`; CI owns it.
-6. Builds need Hugo **extended** and **pandoc** (CI installs both).
+6. **Use Org inline code in posts.** Write `=code=` or `~code~`, not Markdown
+   backticks. Pandoc treats backticks as literal text and can turn `--` into an
+   en dash.
+7. Builds need Hugo **extended** and **pandoc** (CI installs both).
 
 ## Validate before pushing
 
