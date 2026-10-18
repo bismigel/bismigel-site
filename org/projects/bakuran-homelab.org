@@ -390,6 +390,9 @@ rebuild plus restore, measured in hours, not minutes.
   surfaces.
 - *Auth*: each public app uses its own login; accounts are non-admin by default;
   lockout is enabled.
+- *Network*: ingress-only default deny in the app namespaces. Same namespace and
+  ingress-nginx are allowed; cross-namespace rules are explicit. Egress is still
+  open.
 - *Supply chain*: pinned where practical, a weekly image scan, dependency updates
   via Renovate, and a human merge gate. The *arr stack, some app images and utility
   images are not pinned yet.
