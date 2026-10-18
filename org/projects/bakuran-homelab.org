@@ -280,8 +280,9 @@ app rejects anything else, quietly).
 * 11. Bookmarks
 
 Karakeep stores bookmarks and full-text search runs in Meilisearch. AI tagging
-and summarisation use a **local Ollama** model; no bookmark content leaves the
-LAN. The public hostname is not Access-gated because the mobile apps cannot do
+and summarisation use **local Ollama**: qwen3:8b for text and qwen3-vl:8b for
+images. No bookmark content leaves the LAN. The public hostname is not Access-gated
+because the mobile apps cannot do
 the OTP flow; NextAuth is the gate.
 
 * 12. The agent (Hermes)
