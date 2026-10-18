@@ -3,7 +3,7 @@
 #+FILETAGS: homelab:cloudflare:media
 
 #+begin_quote
-*Building the lab* — a side story. (Not part of the numbered series.)
+*Building the lab*: a side story. (Not part of the numbered series.)
 ← [[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one]] ·
 [[file:2026-10-28-observability-is-the-part-im-good-at.org][Observability is the part I'm good at]]
 #+end_quote
@@ -23,8 +23,8 @@ The video stuttered. So I did what I always do: I blamed the box.
 
 ** The server. Wrong.
 Jellyfin converts video while you watch, so I assumed the little i5 could not keep up. I
-checked the stats. It was converting at about **280 frames per second** — about ten times
-real time — and it was a third of the way *ahead* of me. The server was bored. Not it.
+checked the stats. It was converting at about **280 frames per second**, about ten times
+real time, and it was a third of the way *ahead* of me. The server was bored. Not it.
 
 ** The disk. Also wrong.
 The media storage is a mix of disks and a network share, and I had trouble with it
@@ -50,7 +50,7 @@ ruled out everything except one thing.
 * The real problem: the path
 
 Here is the clue that broke it open. I looked at where the player's requests were *coming
-from*. They came from a **pod's address** inside the cluster — the ingress — not from my
+from*. They came from a **pod's address** inside the cluster (the ingress), not from my
 laptop on the same network. So the stream was not going laptop -> server. It was going:
 
 #+begin_example
@@ -78,7 +78,7 @@ a cinema.
 
 * The fix, which took one second
 
-I opened Jellyfin at its local address instead — =http://192.168.2.81:8096= — and it was
+I opened Jellyfin at its local address instead (=http://192.168.2.81:8096=), and it was
 instant. No tunnel, no edge, no login check for every piece of video. Just a wire between
 two machines that sit in the same room.
 
@@ -99,6 +99,6 @@ Because the slow way had a nice lock on it. The lock looked safe, so I held the 
 and waved it through.
 
 #+begin_quote
-*Building the lab* — a side story. ← [[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one]] ·
+*Building the lab*: a side story. ← [[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one]] ·
 [[file:2026-10-28-observability-is-the-part-im-good-at.org][Observability is the part I'm good at]]
 #+end_quote

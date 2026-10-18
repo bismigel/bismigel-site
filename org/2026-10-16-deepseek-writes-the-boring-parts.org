@@ -3,7 +3,7 @@
 #+FILETAGS: ai:homelab:agents
 
 #+begin_quote
-*Building the lab — Part 5 of 8.* ← [[file:2026-10-14-one-cluster-three-nodes.org][One cluster, three nodes]]
+*Building the lab: Part 5 of 8.* ← [[file:2026-10-14-one-cluster-three-nodes.org][One cluster, three nodes]]
 Next: [[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]]
 #+end_quote
 
@@ -68,8 +68,8 @@ something, it does not summarize a log I pasted; it goes and looks. That is when
 stopped being a toy. It is also the danger.
 
 There is a cleaner way to give it room: MCP servers. They give it a clear list of
-actions instead of a whole shell. I prefer them. Not because they can do more — a
-shell with =kubectl= can do more. But because I can name each action, think about it,
+actions instead of a whole shell. I prefer them. Not because they can do more (a
+shell with =kubectl= can do more), but because I can name each action, think about it,
 and block it. A shell is a list with no end.
 
 * The leash
@@ -117,6 +117,6 @@ So the lab ran, and a model wrote a good part of it. Then I tried to watch somet
 it, and hit a wall.
 
 #+begin_quote
-*Building the lab — Part 5 of 8.* Previous: [[file:2026-10-14-one-cluster-three-nodes.org][One cluster, three nodes]].
+*Building the lab: Part 5 of 8.* Previous: [[file:2026-10-14-one-cluster-three-nodes.org][One cluster, three nodes]].
 Next: [[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]].
 #+end_quote

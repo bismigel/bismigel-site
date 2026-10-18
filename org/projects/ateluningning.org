@@ -11,8 +11,8 @@ with the small things.
 
 * What she does
 
-- =!askluningning <question>= — one-shot AI answer (DeepSeek).
-- =!chismis= — start a 30-minute session-based chat. After that you just talk;
+- =!askluningning <question>=: one-shot AI answer (DeepSeek).
+- =!chismis=: start a 30-minute session-based chat. After that you just talk;
   no prefix needed. =!yokona= ends it early.
 - Everyday helpers: =!hello=, =!ping=, =!uptime=, =!verse=, =!horoscope=,
   =!calc=, =!choose=, =!roll=.
@@ -27,7 +27,7 @@ Long answers are handled explicitly: short replies go as one message, medium
 ones are split with rate-limit awareness, and very long ones are truncated with
 a note.
 
-State lives in memory — the bot is deliberately restartable and stateless on
+State lives in memory: the bot is deliberately restartable and stateless on
 disk. Configuration comes from environment variables (bot token, DeepSeek key),
 never from the repository.
 

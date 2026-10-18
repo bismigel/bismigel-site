@@ -1,4 +1,4 @@
-#+TITLE: The Bakuran homelab — technical reference
+#+TITLE: The Bakuran homelab: technical reference
 #+DATE: 2026-10-17
 #+SUMMARY: A definitive, versioned write-up of the lab: hardware, network, storage, GitOps, services, backups, security and the failure modes that shaped it.
 #+FILETAGS: :homelab:kubernetes:gitops
@@ -7,7 +7,7 @@
 
 | Field | Value |
 |-------+-------|
-| Document | Bakuran homelab — technical reference |
+| Document | Bakuran homelab: technical reference |
 | Version | *2026-10-17* (first definitive version) |
 | Scope | Hardware, network edge, cluster, storage, delivery, services, observability, backups, security |
 | Audience | Future me, anyone reviewing the design, and the agent that helps run it |
@@ -19,13 +19,13 @@ component has a sharp edge, the edge is written down.
 
 * 0. Why "Bakuran"
 
-In Tagalog, *bakuran* is the yard or enclosure around a house — from *bakod*, a
+In Tagalog, *bakuran* is the yard or enclosure around a house, from *bakod*, a
 fence. It is the space behind the house where things get built, repaired, and
 occasionally taken apart to see how they work.
 
 That is exactly what this is: a fenced-off corner of the house for experiments.
 It is personal, small, and safe to break on purpose. The name is a reminder that
-this is a backyard, not a data centre — useful precisely because it is allowed to
+this is a backyard, not a data centre, useful precisely because it is allowed to
 be a little messy, as long as the messy parts are understood and written down.
 
 * 1. Goals and constraints
@@ -46,29 +46,29 @@ failures. The constraints shaped almost every decision:
 
 | Role | Machine | Specs | Runs |
 |------+---------+-------+------|
-| Platform | AMD desktop | Ryzen 5 4600G (6c/12t), 16–32 GB RAM, 2× NVMe + 2× SATA | Control plane + etcd, ArgoCD, ingress, edge connectors |
+| Platform | AMD desktop | Ryzen 5 4600G (6c/12t), 16 to 32 GB RAM, 2× NVMe + 2× SATA | Control plane + etcd, ArgoCD, ingress, edge connectors |
 | Media | Intel mini-PC | i5-7500T (4c), QuickSync, 2× NVMe + 2× SATA | Jellyfin and the *arr stack, transcoding |
 | Quorum + photos | 2012 MacBook Pro | ~240 GB SSD | Third etcd member (tainted), Immich server/DB |
-| Admin | Workstation | — | NixOS + Home Manager, deploys, dead-man's switch |
-| Edge | Cloudflare | — | Tunnel, DNS, TLS, Zero Trust Access, R2 |
+| Admin | Workstation | - | NixOS + Home Manager, deploys, dead-man's switch |
+| Edge | Cloudflare | - | Tunnel, DNS, TLS, Zero Trust Access, R2 |
 
 #+begin_src mermaid
 flowchart TB
   CF["Cloudflare edge<br/>DNS · TLS · Access · Tunnel"]
-  subgraph P["Platform node — Ryzen 5 4600G"]
+  subgraph P["Platform node: Ryzen 5 4600G"]
     K1["k3s server · etcd"]
     A["ArgoCD"]
     I["ingress-nginx"]
     O["Prometheus · Alertmanager · Grafana"]
   end
-  subgraph M["Media node — i5-7500T"]
+  subgraph M["Media node: i5-7500T"]
     K2["k3s server · etcd"]
     J["Jellyfin"]
     R["Sonarr · Radarr · Prowlarr · Bazarr"]
     D["SABnzbd · qBittorrent"]
     B["Kavita · LazyLibrarian"]
   end
-  subgraph Q["Quorum + photos — MacBook Pro"]
+  subgraph Q["Quorum + photos: MacBook Pro"]
     K3["k3s server · etcd (tainted)"]
     IM["Immich server · Postgres"]
   end
@@ -89,7 +89,7 @@ flowchart TB
 
 The taint on the MacBook is deliberate: it is a quorum member and a photo host,
 not a general-purpose worker. Removing it from the cluster would leave two etcd
-members — a worse failure mode than using it carefully.
+members, a worse failure mode than using it carefully.
 
 * 3. Network and edge
 
@@ -127,7 +127,7 @@ flowchart LR
 
 * 4. The cluster
 
-One **k3s cluster with three embedded-etcd members** — not three clusters. This
+One **k3s cluster with three embedded-etcd members**, not three clusters. This
 is the most important simplification in the lab: one API server, one ArgoCD, one
 set of CRDs, one place to look.
 
@@ -185,7 +185,7 @@ flowchart TB
 
 NixOS hosts are separate: they are built from =bakuran-infra= and deployed with
 =deploy-rs=, with magic rollback. The OS is not managed by ArgoCD, and that is
-intentional — the cluster should not be able to brick its own hosts.
+intentional: the cluster should not be able to brick its own hosts.
 
 Reproducibility rules that came out of real failures:
 
@@ -193,7 +193,7 @@ Reproducibility rules that came out of real failures:
   version.
 - Renovate proposes dependency and digest updates; a human reviews and merges.
 - Direct pushes to =main= are blocked on the admin workstation by a git hook
-  (GitHub's branch protection needs a paid plan on private repos — recorded as a
+  (GitHub's branch protection needs a paid plan on private repos; recorded as a
   known limitation).
 - Rebuild steps that involve application UIs are scripted. The book stack has a
   single idempotent bootstrap command that recreates admin accounts, libraries
@@ -201,15 +201,15 @@ Reproducibility rules that came out of real failures:
 
 * 7. Platform services
 
-- *ingress-nginx* — the only HTTP entry from the tunnel; forwards client IPs.
-- *cert-manager* — internal certificates; public TLS is at Cloudflare.
-- *External Secrets Operator* — Bitwarden Secrets Manager is the source of truth;
+- *ingress-nginx*: the only HTTP entry from the tunnel; forwards client IPs.
+- *cert-manager*: internal certificates; public TLS is at Cloudflare.
+- *External Secrets Operator*: Bitwarden Secrets Manager is the source of truth;
   Kubernetes secrets are materialised from it. Host-level secrets use SOPS/age.
-- *Monitoring* — Prometheus, Alertmanager and Grafana. Scrapes node-exporter,
+- *Monitoring*: Prometheus, Alertmanager and Grafana. Scrapes node-exporter,
   kube-state-metrics, Kepler (power) and the ArgoCD controller endpoints.
-- *Kepler* — per-node power/energy metrics; useful for capacity and for noticing
+- *Kepler*: per-node power/energy metrics; useful for capacity and for noticing
   a runaway transcode.
-- *Homepage* — a single landing page for every service.
+- *Homepage*: a single landing page for every service.
 
 * 8. Media platform
 
@@ -322,9 +322,9 @@ inside the thing it monitors is decoration.
 
 Two daily, age-encrypted streams go to Cloudflare R2:
 
-- =credentials/= — host SSH keys (also the SOPS age identity), kubeconfig and the
+- =credentials/=: host SSH keys (also the SOPS age identity), kubeconfig and the
   Bitwarden machine token. Kept 90 days.
-- =appdata/= — config volumes and databases for the *arrs, Jellyfin, Grafana,
+- =appdata/=: config volumes and databases for the *arrs, Jellyfin, Grafana,
   Prometheus, ZeroClaw, Immich (dump + library), Kavita, LazyLibrarian, Karakeep
   and Meilisearch. Kept 14 days.
 
@@ -377,11 +377,11 @@ and one public login surface (Kavita) that is internet-facing.
 
 A rebuild has three layers:
 
-1. *NixOS hosts* — =bakuran-infra=, deployed with =deploy-rs=; SSH keys, users,
+1. *NixOS hosts*: =bakuran-infra=, deployed with =deploy-rs=; SSH keys, users,
    services and the edge reconciler are declared.
-2. *Cluster* — =bakuran-gitops= in ArgoCD; every namespace, workload, secret
+2. *Cluster*: =bakuran-gitops= in ArgoCD; every namespace, workload, secret
    reference, ingress and alert is a manifest.
-3. *Application state* — restorable from the R2 backup, or recreated by scripts:
+3. *Application state*: restorable from the R2 backup, or recreated by scripts:
    the book stack has one idempotent bootstrap; the media stack has setup scripts
    for root folders, clients, indexers and users.
 

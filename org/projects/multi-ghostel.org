@@ -12,11 +12,11 @@ with ghostel, so this only adds what is missing.
 
 * What it adds
 
-- *Directory-scoped reuse* — =multi-ghostel-cwd= keys off =default-directory=
+- *Directory-scoped reuse*: =multi-ghostel-cwd= keys off =default-directory=
   (following =cd= via OSC 7), so each directory gets one reusable terminal.
-- *An always-new command* — =multi-ghostel= starts a fresh session, matching
+- *An always-new command*: =multi-ghostel= starts a fresh session, matching
   multi-vterm's behaviour instead of reusing ghostel's buffer.
-- *A dedicated window* — toggle, open, close and focus a single terminal window
+- *A dedicated window*: toggle, open, close and focus a single terminal window
   without killing the shell running in it.
 
 * Why a separate package

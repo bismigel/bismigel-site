@@ -112,8 +112,8 @@ That last one might be the most useful artifact. The lab is not impressive
 because it is complex; it is slowly becoming trustworthy because its failure
 modes are written down and watched.
 
-If you want the long version — hardware, network, storage, GitOps, services,
-backups, security, and the full failure table — it lives in the
+If you want the long version (hardware, network, storage, GitOps, services,
+backups, security, and the full failure table), it lives in the
 [[https://bismigel.dev/projects/bakuran-homelab/][technical reference]].
 
 * What I would do next

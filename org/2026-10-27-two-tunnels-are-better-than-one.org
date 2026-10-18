@@ -3,12 +3,12 @@
 #+FILETAGS: homelab:kubernetes:cloudflare
 
 #+begin_quote
-*Building the lab — Part 7 of 8.* ← [[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]]
+*Building the lab: Part 7 of 8.* ← [[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]]
 Next: [[file:2026-10-28-observability-is-the-part-im-good-at.org][Homelab observability: Prometheus, Grafana and five focused dashboards]]
 #+end_quote
 
 I only started to worry about the front door after something else broke. Then I saw how
-much depended on one machine. Everything public — the sites, the dashboards, the agent —
+much depended on one machine. Everything public (the sites, the dashboards, the agent)
 came in through one Cloudflare connector on one box. If that process died, or if I
 rolled it out badly, the whole lab went dark from the outside. I had not thought about
 it until then. That is usually how I find these things.
@@ -92,8 +92,8 @@ the door stays open; what is behind the door is a different story.
 
 * What it buys
 
-For a homelab, this is the right place to stop. The failures I actually expect — a
-connector that crashes, a bad ingress update, a process that dies — now mean "one box
+For a homelab, this is the right place to stop. The failures I actually expect (a
+connector that crashes, a bad ingress update, a process that dies) now mean "one box
 serves instead of two", not "the whole edge is down". The tunnel shows two healthy
 connections, the sites answer, and the front door stops being the thing I worry about.
 For one extra service and one =curl=, that is a fair trade.
@@ -102,6 +102,6 @@ With the edge solid, I could relax. But a lab you cannot watch is a lab you cann
 trust. So the last part is about the thing I am actually good at.
 
 #+begin_quote
-*Building the lab — Part 7 of 8.* Previous: [[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]].
+*Building the lab: Part 7 of 8.* Previous: [[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]].
 Next: [[file:2026-10-28-observability-is-the-part-im-good-at.org][Homelab observability: Prometheus, Grafana and five focused dashboards]].
 #+end_quote
