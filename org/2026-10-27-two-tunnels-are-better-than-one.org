@@ -4,7 +4,7 @@
 
 #+begin_quote
 *Building the lab — Part 7 of 8.* ← [[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]]
-Next: [[file:2026-10-28-observability-is-the-part-im-good-at.org][Observability is the part I'm good at]]
+Next: [[file:2026-10-28-observability-is-the-part-im-good-at.org][Homelab observability: Prometheus, Grafana and five focused dashboards]]
 #+end_quote
 
 I only started to worry about the front door after something else broke. Then I saw how
@@ -103,5 +103,5 @@ trust. So the last part is about the thing I am actually good at.
 
 #+begin_quote
 *Building the lab — Part 7 of 8.* Previous: [[file:2026-10-24-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]].
-Next: [[file:2026-10-28-observability-is-the-part-im-good-at.org][Observability is the part I'm good at]].
+Next: [[file:2026-10-28-observability-is-the-part-im-good-at.org][Homelab observability: Prometheus, Grafana and five focused dashboards]].
 #+end_quote

@@ -1,105 +1,269 @@
-#+TITLE: Homelab observability: Prometheus, Grafana and alerts that matter
+#+TITLE: Homelab observability: Prometheus, Grafana and five focused dashboards
 #+DATE: 2026-10-28
 #+FILETAGS: homelab:observability:monitoring
+#+DESCRIPTION: How a three-node k3s homelab collects metrics with Prometheus, splits them into five Grafana dashboards, and sends the alerts that matter to Telegram.
 
 #+begin_quote
-*Building the lab — Part 8 of 8.* ← [[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one]]
+*Building the lab — Part 8 of 8.* ← [[file:2026-10-27-two-tunnels-are-better-than-one.org][Cloudflare Tunnel HA: two connectors for a safer homelab edge]]
 You are at the end.
 #+end_quote
 
-Most of this lab is me learning in public. I write about the parts I barely understand,
-because that is where the useful stories are. This post is different.
+The last post made the edge harder to kill. This one makes it visible. To me that is the
+real end of the build: a lab I can leave alone, because it tells me when something is
+wrong.
 
-Observability is what I do for a living. Of everything in this lab, it is the one part I
-am not faking. So when I say the monitoring here is better than it needs to be, take it
-as a small brag. It is one.
+Observability is what I do for a living. That makes me picky, but the lab version is
+still small. Most of it fits in one namespace; a couple of small controllers live
+beside it, on the same three nodes as everything else. The shape, though, is the shape I would use anywhere.
 
-* Most homelabs have a dashboard they open twice a year
+I rewrote this page. The first version described one dashboard and four alerts. Since
+then the lab grew a control-plane view, a storage view, a power view and an edge view.
+The ideas did not change. The number of questions did.
 
-The usual story goes like this. You install Grafana because it looks good in a
-screenshot. You make one dashboard, then never look at it again. It is decoration.
-Nothing on it is connected to anything that would tell *you* when something is wrong.
-So you find out the lab broke only when you try to use it.
+* A dashboard you never open is decoration
 
-That is the mistake I refuse to make. It is also the mistake I spend my working life
-cleaning up after.
+Most homelabs have a Grafana screenshot and nothing behind it. You build one dashboard,
+look at it for a week, and then forget it exists. The next time you open it is after
+something has already broken.
 
-* If it is not in git, it does not exist
+I did not want that. A dashboard should answer a question I actually ask. An alert
+should be something I would get out of bed for. If neither is true, it is noise with
+pretty colours.
 
-The rule for the monitoring is the same as the rule for everything else: it is written
-as files in the repo, and it rebuilds itself from those files every time it starts.
-Datasources, the dashboard, the alert rules, and where the alerts go — all of it. I have
-never once logged into Grafana to *build* something. I only log in to look.
+There is one more rule, and it is the same rule as the rest of the lab: the monitoring
+is files in git. Datasources, dashboards, alert rules, receivers — all of it. I have
+never built a dashboard by clicking in the UI. I only log in to look.
 
-That sounds fussy, but it is the whole trick. A dashboard you built by hand is one disk
-failure away from gone, and it drifts the first time someone clicks the wrong thing. A
-dashboard in git is a review away from correct, and it survives the machine it happens
-to be running on. This lab is supposed to be nuke-proof, and monitoring is no exception.
+* The stack, with versions
 
-* The stack, quickly
+| Component | Version | What it does |
+|-----------+---------+--------------|
+| Prometheus | 2.51.0 | Pulls metrics every 15s, evaluates rules, keeps 1GB of history |
+| Alertmanager | 0.27.0 | Groups, deduplicates and sends alerts to Telegram |
+| Grafana | 10.4.0 | Draws the five dashboards; login through Cloudflare Access |
+| node-exporter | 1.7.0 | Host CPU, memory, disk, network and load on all three nodes |
+| kube-state-metrics | 2.13.0 | Kubernetes object state: pods, deployments, PVCs, nodes |
+| Kepler | 0.6.2 (chart) | Per-node and per-pod energy use |
+| etcd-metrics-proxy | socat 1.8.0.0 | Relays k3s's loopback etcd metrics to the node network |
+| Cloudflare edge exporter | 1.1.0 (mine) | Tunnel, zone, TLS, DNS, Access and RUM state |
+| config-reloader | busybox 1.36 | Reloads Prometheus when config or rules change |
 
-- *Prometheus* does the collecting. It reads the standard machine metrics from every
-  host, and it reads the cluster's own numbers from inside Kubernetes: how many pods are
-  running, how many storage volumes are healthy.
-- *Grafana* is the window: one page, called Homelab Overview.
-- *Alertmanager* is the part that reaches me. It decides which alerts deserve a message
-  and sends them to a Telegram bot. There is no email I will ignore, and no dashboard I
-  have to remember to open.
+The versions matter less than the split. Each piece answers a different kind of
+question, and each one fails in a different way. That is why I can debug them
+separately.
 
-* I only alert on what I would act on
+* Prometheus pulls; almost nothing pushes
 
-Here is where my day job helps. The beginner move is to alert on everything. Then you get
-buried, and you start ignoring alerts. That is worse than having none. So my list stays
-short, boring, and useful. Each alert is something I would actually get out of bed for:
+Prometheus is a pull system. A target exposes a page of numbers, and Prometheus asks for
+it on a schedule. Targets are found through Kubernetes service discovery: a pod or
+service with the right =prometheus.io/scrape= annotation is added automatically. The
+annotation is the contract.
 
-- a machine has stopped answering;
-- a thing I *meant* to watch has vanished, so I stop trusting the numbers I can still
-  see;
-- a disk is filling up, caught before it is full;
-- memory has been pinned for a while — not a spike, a trend.
+The exception is anything that happens as an event instead of a value. A failed backup
+is an event. There is no useful gauge that says "the backup did not run"; there is just
+a job that failed. Those alerts are pushed to Alertmanager directly.
 
-Four alerts. Every one means "do something". I would rather have four that I believe than
-forty that I have muted.
+Here is the whole path, in one picture:
 
-* The brag: my backups tell on themselves
+#+begin_example
+node-exporter       :9100   host metrics, every node
+kube-state-metrics  :8080   Kubernetes object state
+etcd proxy          :9101   control-plane internals
+kepler              :9102   energy
+argocd              metrics  GitOps state
+edge exporter       :9182   Cloudflare
+        │
+        ▼
+   Prometheus  ──pull every 15s──▶  Grafana (five dashboards)
+        │
+        └──▶ Alertmanager ──▶ Telegram
+#+end_example
 
-This is the part I am proudest of. And it comes straight out of the cluster post. There, I
-found out my "backup" had been failing every night for who knows how long. I had a backup
-I believed in that simply did not exist. The only reason I know that story is that I went
-looking.
+** Hosts: node-exporter, with one important flag
 
-So now the backups report on themselves. Each backup is a scheduled job. If it fails, the
-operating system itself sends an alert into the same pipeline as everything else. A dead
-backup shows up in the same place, with the same shape, as a dead machine. I do not have
-to remember to check. The lab tells me.
+node-exporter runs as a DaemonSet on every node, including the tainted MacBook. It uses
+=hostNetwork= and =hostPID= so it sees the real machine, not a container.
 
-The first time I tested it, end to end — a deliberate failure, landing in Telegram a few
-seconds later — I grinned like an idiot. That is the difference between a lab that merely
-*has* monitoring and a lab I actually trust.
+The flag that mattered is =--path.rootfs=/rootfs=. Without it, node-exporter read the
+host mount list but stat'ed the container's own root. Every host filesystem outside the
+usual =/proc=, =/sys= and =/dev= mounts was invisible. The media pool at =/mnt/media=
+did not exist, and the numbers for =/= were the overlay's. One flag turned a blind spot
+into a dashboard.
 
-* One screen
+** Kubernetes: kube-state-metrics, after fixing a silent bug
 
-Homelab Overview is deliberately a single screen. Across the top are the numbers I check
-at a glance: machines answering, alerts firing, pods running, volumes healthy, restarts
-in the last hour. Below that, the trends per machine: CPU, memory, disk, load. At the
-bottom, a live table of anything currently firing.
+kube-state-metrics reads the Kubernetes API and turns objects into =kube_*= metrics. It
+was running with the =default= ServiceAccount and no RBAC. Every reflector failed, the
+endpoint served zero samples, and Prometheus still reported =up=1=. A target that
+answers is not the same as a target with data.
 
-That is all of it. No wall of graphs that nobody reads. If the top row is green and the
-bottom table is empty, the lab is fine, and I can walk away.
+The fix was a dedicated ServiceAccount and a ClusterRole limited to the object types KSM
+actually watches. It can list pods, deployments, PVCs, nodes and similar resources. It
+cannot read Secrets or ConfigMaps. Least privilege here is easy, and it removes a quiet
+failure mode.
 
-* What I would tell you
+** etcd: a relay instead of an exposed port
 
-If observability is not your thing, steal the shape of this, not the tools. Put your
-monitoring config in git. Alert on a few things. Send the alerts somewhere you will
-actually see them. And watch your backups succeed at least once — or better, make them
-scream when they do not.
+k3s runs etcd in-process and serves its metrics on =127.0.0.1:2381=. That address does
+not exist in the pod network. I could have enabled =--etcd-expose-metrics=, but that
+binds =0.0.0.0:2381= with no authentication, reachable from the LAN. I did not want
+that.
 
-I am not smart about most of this lab. But this part I know, and it shows.
+Instead, a small DaemonSet runs =socat= in each node's host network namespace:
 
-That is the story so far. Two boxes became three. The lab learned to watch itself. It is
-not finished, and I am still not an expert. But it is honest, and now it tells me when
-something breaks.
+#+begin_example
+127.0.0.1:2381  ──socat──▶  <node-ip>:9101
+#+end_example
+
+Prometheus scrapes it through the normal annotation-driven pod job. There was one
+firewall surprise: the rule needed the pod CIDR *and* the node IPs. Flannel rewrites the
+source address when traffic crosses nodes, so allowing only the pod network was not
+enough.
+
+** Power: Kepler, scraped pod by pod
+
+Kepler estimates energy use from hardware counters. It runs on every node with
+=hostNetwork=, so each pod's IP is its node's IP.
+
+The first version scraped the Kepler Service. That load-balanced each scrape across
+nodes, so each node's series appeared and disappeared. The fix was to scrape the pods
+directly and keep Kepler's own =instance=<node>= label with =honor_labels: true=. Now
+the power graph has three steady lines instead of gaps.
+
+** Edge: a small exporter I had to write
+
+Cloudflare's request and bandwidth analytics are GraphQL-only, and the free plan does not
+include the GraphQL Analytics API. I did not want to pay for a homelab dashboard. What
+every plan does expose over plain REST is the health that actually pages me: tunnel
+status, connector count, zone state, TLS certificate state, DNS record count and the
+number of Access applications.
+
+So I wrote a small exporter in plain Python. Every 60 seconds it collects a snapshot over
+REST and keeps it in memory. Prometheus scrapes the cached page, so a slow Cloudflare API
+never slows a scrape. A few details:
+
+- It runs as a non-root user, with a read-only root filesystem and no capabilities.
+- The token comes from Bitwarden through External Secrets, and it is read-only.
+- Web Analytics (RUM) is free on every plan and already collecting, so the exporter also
+  queries that one account-scoped GraphQL dataset. Everything else stays on REST.
+- If Cloudflare is slow or the token expires, =cloudflare_api_up= and
+  =cloudflare_export_timestamp_seconds= show it. The exporter does not hide its own
+  failure.
+
+The Edge dashboard is the newest of the five, and the one I did not know I needed until
+the tunnel had two connectors. "The tunnel is healthy" is not a feeling any more; it is
+a number.
+
+** Backups: the one thing that pushes
+
+The systemd backup units have =OnFailure= hooks that post an alert to Alertmanager. I do
+not try to infer a failed backup from a missing metric. I let the job say it failed.
+
+That was the lesson from the cluster post: a backup I believed in had been failing for
+who knows how long. Now the backup reports on itself, in the same place and the same
+shape as a dead node.
+
+* Rules reload themselves
+
+Prometheus runs with =--web.enable-lifecycle=. A tiny busybox sidecar hashes the config
+and rule files every 10 seconds, and when the hash changes it calls =/-/reload=.
+
+That sounds like a small thing. It is the difference between editing a rule and waiting
+for a rollout, and editing a rule and watching it take effect. It also means the alert
+rules can live in a ConfigMap and still behave like code.
+
+* Five dashboards, five questions
+
+The dashboards are deliberately separate. Each one answers a different question, and I
+open them at different times.
+
+| Dashboard | The question | What is on it |
+|-----------+--------------+---------------|
+| Homelab Overview | Is the lab healthy right now? | Nodes ready, firing alerts, pods, containers not ready, ArgoCD health, media free; CPU, memory, load, network and filesystem trends; pods by phase; restarts |
+| Homelab Storage & Media | Will the media pool fill? | Used, free and total bytes; projected time to full; filesystems on the media box; PVC usage; largest container logs |
+| Homelab Control Plane | Is etcd and the API healthy? | Members reporting, leader changes, DB size against quota, WAL fsync and backend commit p99, peer round-trip, proposals, node conditions, API storage, targets down |
+| Homelab Power | What is using the watts? | Cluster watts, 24-hour energy, average, nodes reporting, per-node and per-component power, top pods |
+| Homelab Edge (Cloudflare) | Is the front door healthy? | Tunnel status, connectors, edge connections by colo, active zones, DNS records, certificates, Access apps, snapshot age, API latency, RUM pageviews |
+
+Overview is the one screen I keep open. Across the top are the numbers I check at a
+glance. Below that are the trends per machine. At the bottom is the live table of firing
+alerts. If the top row is green and the table is empty, I can walk away.
+
+The other four are for when that screen is not enough. Storage is about a pool that is a
+mergerfs union of four branches across two hosts, so it gets its own view and its own
+alerts. Control Plane is about quorum and disk latency, not CPU. Power is curiosity that
+turned out to be useful. Edge is the one that tells me whether the tunnel is doing what
+the last post promised.
+
+** How the separation works
+
+Each dashboard is its own ConfigMap and its own file: =grafana-dashboard-overview=,
+=-storage=, =-control-plane=, =-power= and =-edge=. Grafana mounts them through a
+projected volume and a file provider that checks for changes every 30 seconds.
+
+Splitting them is not just tidiness. A storage change is a storage diff. A broken edge
+query cannot blank the overview. And a dashboard is small enough to review.
+
+There are two traps I hit:
+
+1. Grafana only reloads a provisioned dashboard when its =version= number goes up. Edit
+   the JSON without bumping =version= and nothing happens.
+2. In Grafana 10.4, a panel without an explicit datasource can show "No data" even when
+   a default datasource exists. Every panel now names the Prometheus datasource by UID.
+   The fix is boring and it is the difference between a working dashboard and a
+   screenshot.
+
+* Alerts: short, grouped and routed
+
+The alert rules are grouped by failure domain, not by dashboard:
+
+| Group | Examples |
+|-------+----------|
+| infra | Node down, target down, disk over 85%, memory over 90%, media pool over 85% and 92% |
+| etcd | No leader, fewer than three members reporting, quorum at risk, WAL fsync p99 over 500ms, DB over 1.5GiB |
+| cloudflare | Tunnel down, fewer than two connectors, zone not active, zone paused, certificate inactive, exporter stale |
+| argocd | App out of sync, app unhealthy |
+
+There are 19 rules in total. The number is not the point, and it is bigger than the four
+I started with. The test is still the same: would I act on this? A CPU spike is not an
+alert. A disk that will fill in a day is. A single connector is a warning, because the
+edge still works. Zero connectors is critical.
+
+Every rule has a =for= duration, so a single bad scrape does not wake me up. Severity is
+a label, not decoration. Alertmanager groups by alert name, sends a resolved message when
+the problem clears, and repeats every four hours while it is still broken. Login alerts
+take a separate route: they arrive immediately and do not send a resolved follow-up.
+
+The backup alerts are not in that table because they are pushed, not evaluated. The
+login alerts work the same way. Both still end up in Telegram with everything else.
+
+* What I got wrong
+
+- kube-state-metrics was up with zero samples. A target can answer and still be useless.
+- node-exporter was reading the container's root, so the media pool did not exist.
+- The etcd relay looked blocked until I allowed the node IPs as well as the pod CIDR;
+  flannel's source rewriting was the missing piece.
+- Kepler scraped through a Service gave gaps. Scraping the pods directly fixed it.
+- A dashboard without a datasource shows "No data", not an error. I spent time looking
+  for a Prometheus problem that was a Grafana panel setting.
+- Free-plan Cloudflare has no GraphQL request analytics. RUM is the exception, not the
+  rule. The exporter is shaped around that limit instead of pretending it is not there.
+
+* What it buys
+
+The lab now has one screen for "is it healthy", four screens for "why is it not", and a
+phone that buzzes when something crosses a line. The edge is monitored from the outside
+as well as the inside. The backups tell on themselves. The media pool warns before an
+import fails, not after.
+
+I am still not an expert on most of this lab. But observability is the part I know, and
+it shows in the shape: pull, don't push; alert on actions; split the dashboards by
+question; and put all of it in git.
+
+That is the story so far. Two boxes became three. The edge learned to survive one
+failure. The lab learned to watch itself. It is not finished, but it is honest, and now
+it tells me when something breaks.
 
 #+begin_quote
-*Building the lab — Part 8 of 8.* Previous: [[file:2026-10-27-two-tunnels-are-better-than-one.org][Two tunnels are better than one]].
+*Building the lab — Part 8 of 8.* Previous: [[file:2026-10-27-two-tunnels-are-better-than-one.org][Cloudflare Tunnel HA: two connectors for a safer homelab edge]].
 #+end_quote
