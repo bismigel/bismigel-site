@@ -98,12 +98,12 @@ cannot fully explain how it works.
 When I change an app, this happens:
 
 1. I push the code.
-2. A robot builds it and pushes a container image.
-3. The robot opens a pull request that changes one version number.
+2. GitHub Actions builds it and pushes a container image.
+3. It opens a pull request that changes one version number.
 4. ArgoCD sees the merge and updates the running app.
 
-I like this. The robot never gets the keys to my cluster. It can only change one
-number, and I approve the change.
+I like this. The workflow never gets the keys to my cluster. It can only change
+one number, and I approve the change.
 
 * Secrets
 

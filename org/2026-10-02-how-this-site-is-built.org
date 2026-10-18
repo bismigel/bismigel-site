@@ -45,7 +45,7 @@ understand only half of it. It works, so I have left it alone.
 hugo --minify    # Org -> HTML into public/
 #+end_src
 
-A robot runs the same steps every time I push:
+GitHub Actions runs the same steps every time I push:
 
 1. turn the files into the website format
 2. run the website builder
@@ -54,7 +54,7 @@ A robot runs the same steps every time I push:
 
 Then ArgoCD sees the new version and updates the site. I never do it by hand.
 
-One part still confuses me: how the robot's version number gets back into my config so
+One part still confuses me: how the workflow's version number gets back into my config so
 ArgoCD can see it. I set it up once and it works. But I would have to read it again
 before I touch it.
 
