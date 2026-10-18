@@ -99,9 +99,9 @@ media and zeroclaw.
 
 ** Jellyfin on the LAN
 
-The TV uses `http://192.168.2.81:8096`, not the public hostname. The first
+The TV uses =http://192.168.2.81:8096=, not the public hostname. The first
 policy blocked the hostPort path. The fix was a narrow exception: the LAN CIDR,
-TCP 8096 only, in the `default` namespace. The public path still goes through
+TCP 8096 only, in the =default= namespace. The public path still goes through
 the tunnel.
 
 ** Login watchers and NAT
@@ -118,7 +118,7 @@ before the first query. They now complete on schedule.
 
 ** The policy programming race
 
-The first egress test from the `apps` namespace showed a false success. The pod
+The first egress test from the =apps= namespace showed a false success. The pod
 started before the policy was programmed. A second test, after the policy had
 settled, was blocked. The lesson is simple: wait and test again before believing
 a policy is live.
@@ -154,7 +154,7 @@ recording rules track 5m, 1h, 6h and 7d ratios, and the alerting rules cover
 fast and slow burn. The Homelab SLOs dashboard shows the budget, per-target
 availability and probe duration.
 
-The SLOs also caught a real bug: `alerts.yml` had been invalid since the
+The SLOs also caught a real bug: =alerts.yml= had been invalid since the
 Cloudflare alert group was added. Prometheus rejected the file, kept the old
 rules, and never loaded the edge or SLO alerts. The reload endpoint returned
 500, but I had not checked it. Fixing the YAML indentation fixed both the edge
@@ -166,20 +166,20 @@ I did not want to test a CNI swap on the production cluster again without a
 smaller proof. So I built a single-node k3s VM with Flannel disabled:
 
 - k3s 1.36 in a QEMU VM;
-- `--flannel-backend=none` and `--disable-network-policy`;
-- Cilium 1.20.3 with `kubeProxyReplacement=false`;
-- `ipam.mode=kubernetes`;
-- CNI config in `/etc/cni/net.d` and binaries in `/opt/cni/bin`.
+- =--flannel-backend=none= and =--disable-network-policy=;
+- Cilium 1.20.3 with =kubeProxyReplacement=false=;
+- =ipam.mode=kubernetes=;
+- CNI config in =/etc/cni/net.d= and binaries in =/opt/cni/bin=.
 
 The first install had the same CNI path problem as production. Once the paths
 were right, the test cluster worked:
 
 - pod to ClusterIP: 401 from the API server;
 - pod to the internet: 301 from the test URL;
-- hostPort: 200 after adding the `portmap` plugin to the Cilium CNI config.
+- hostPort: 200 after adding the =portmap= plugin to the Cilium CNI config.
 
-That last part matters. Cilium's default CNI config does not include `portmap`,
-and Jellyfin's LAN TV path needs hostPort. I added a `portmap` plugin through a
+That last part matters. Cilium's default CNI config does not include =portmap=,
+and Jellyfin's LAN TV path needs hostPort. I added a =portmap= plugin through a
 custom CNI ConfigMap.
 
 * The production retry
@@ -205,7 +205,7 @@ I rolled back:
 - deployed the k3s flags back;
 - removed stale Cilium iptables and policy-routing rules;
 - rebooted the nodes;
-- remounted the NFS media branches on `.81` and restarted Kavita and
+- remounted the NFS media branches on =.81= and restarted Kavita and
   LazyLibrarian.
 
 The uninstall had left stale rules that broke etcd leader election. That was the
@@ -221,10 +221,10 @@ scariest part. The etcd data was intact. The rules were not.
    restoring the old CNI.
 4. **Egress is harder than ingress.** Ingress has a closed source set; egress
    has a long destination list.
-5. **HostPort needs explicit CNI support.** Cilium's CNI config needed `portmap`
+5. **HostPort needs explicit CNI support.** Cilium's CNI config needed =portmap=
    for the TV path.
-6. **Reboot order matters for NFS.** If `.81` boots before `.82`, the media
-   branches fail to mount and the books pods stay in `ContainerCreating`.
+6. **Reboot order matters for NFS.** If =.81= boots before =.82=, the media
+   branches fail to mount and the books pods stay in =ContainerCreating=.
 7. **A false-positive test is worse than no test.** Wait for policy programming
    before concluding that a rule works.
 8. **Validate alert rules before reloading.** A YAML error kept Prometheus on
