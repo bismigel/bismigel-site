@@ -216,8 +216,11 @@ the node IP or anything outside. The test cluster did not reproduce that. I remo
 entirely and repeated the production install. The result was the same. That rules out the stale config. I then built a two-node k3s 1.34 test cluster
 and reproduced the same failure. A two-node k3s 1.36 cluster works. The Cilium
 version and policy config are not the problem; the k3s 1.34 path is. I then upgraded production k3s to 1.36 and retried Cilium. It still failed. The
-test 1.36 cluster runs kernel 6.18; production runs 6.12.78. The remaining
-suspect is the production kernel, not k3s or the Cilium policy config.
+working 1.36 test cluster runs kernel 6.18; production runs 6.12.78. Cilium
+documents 5.10 or newer as supported, and the production kernel has the BPF,
+ipset, VXLAN and FIB_RULES options. So this is not a missing requirement. The
+remaining difference is the production host or firewall path, or a Cilium bug
+that is not in the requirements table.
 
 I rolled back:
 
