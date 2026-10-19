@@ -1,0 +1,74 @@
+#+TITLE: Why I am considering Forgejo, and why I have not switched
+#+DATE: 2026-10-19T20:30:00-04:00
+#+FILETAGS: homelab:gitops:forgejo:github
+#+DESCRIPTION: A practical look at moving a private homelab GitOps repo to Forgejo, the required-checks gap on GitHub Free, and why the migration is deferred.
+
+I added CI to the GitOps repo. The workflow validates YAML, Kubernetes schemas and
+Prometheus rules. It runs on every pull request.
+
+It still does not block a bad merge.
+
+That is the problem. `bakuran-gitops` is private on GitHub Free. Required status
+checks and branch protection are paid features for private repositories. The
+workflow can be red, and the merge button still works. For a one-person lab that
+is a discipline problem; for a hiring signal it is worse, because the repo
+advertises guardrails it cannot enforce.
+
+* What I actually want
+
+- a private Git remote I control;
+- pull requests;
+- required checks that actually block;
+- no per-seat or per-private-repo paywall;
+- a path to CI and an OCI registry that I understand.
+
+Forgejo is the obvious candidate. It is lightweight, self-hostable, and has
+branch protection and Actions without GitHub's private-repo plan gate.
+
+* What Forgejo does not solve for free
+
+Running the server is the easy part. The migration is the work:
+
+- GitHub Actions are not guaranteed to run unchanged;
+- a self-hosted runner is another privileged workload to secure;
+- GHCR has to be replaced or kept external;
+- repository imports do not guarantee perfect PR and issue history;
+- SMTP, OAuth, TLS, backups and upgrades become mine;
+- public Git access needs a different auth story from a browser app behind
+  Cloudflare Access.
+
+Forgejo gives control. It also gives me another service to patch.
+
+* Why I am deferring it
+
+I do not want to migrate the platform and the Git host at the same time. The
+honest sequence is:
+
+1. finish the current platform work;
+2. run Forgejo internally, with no public edge;
+3. mirror two repos and read them from ArgoCD;
+4. port one CI workflow, not all of them;
+5. restore Forgejo from backup once;
+6. migrate only after the mirror and restore are boring.
+
+The current CI stays. It is useful even when it is advisory. The difference
+between "a check ran" and "a check blocked the merge" is exactly the gap Forgejo
+would close.
+
+* What would make me switch
+
+- required checks available without a plan upgrade;
+- a runner that can validate the GitOps repo reliably;
+- an ArgoCD repo credential that works from inside the cluster;
+- a tested backup and restore;
+- a clean way to keep GitHub as a mirror during the transition.
+
+Until then, Forgejo is a planned experiment, not a migration.
+
+* Links
+
+- Forgejo: https://forgejo.org/
+- Forgejo Actions: https://forgejo.org/docs/latest/user/actions/
+- Forgejo migration: https://forgejo.org/docs/latest/user/migrations/
+- GitHub Free private repository limits:
+  https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches
