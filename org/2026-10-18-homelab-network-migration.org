@@ -225,7 +225,15 @@ both the host and 1.1.1.1. The tunnel plus kube-proxy combination fails on this
 kernel. Native routing with =autoDirectNodeRoutes= is the next production
 candidate.
 
-I rolled back:
+The candidate worked. The 1.34 test cluster returned 200 for service traffic
+and reached both the host and 1.1.1.1. I cut production over: disabled Flannel,
+trusted the =cni+= interfaces, set =checkReversePath=false=, and installed
+Cilium 1.20.3 with native routing, =autoDirectNodeRoutes=true= and kube-proxy.
+All three nodes are Ready, Cilium health is 3/3, public sites return 200, and
+Jellyfin's LAN hostPort returns 200. Longhorn and ArgoCD pods needed recreation
+to receive Cilium IPs. Cilium is now managed by ArgoCD in =bakuran-gitops=.
+
+Earlier failed attempts rolled back:
 
 - removed the Cilium release and CNI files;
 - restored Flannel;
