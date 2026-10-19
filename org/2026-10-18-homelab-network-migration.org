@@ -233,6 +233,14 @@ All three nodes are Ready, Cilium health is 3/3, public sites return 200, and
 Jellyfin's LAN hostPort returns 200. Longhorn and ArgoCD pods needed recreation
 to receive Cilium IPs. Cilium is now managed by ArgoCD in =bakuran-gitops=.
 
+The working configuration came from
+[[https://github.com/niki-on-github/nixos-k3s][niki-on-github/nixos-k3s]],
+specifically =systems/x86_64-linux/supermicro-k3s/default.nix= for the k3s and
+firewall flags and =kubernetes/core/networking/cilium/operator/helm-values.yaml=
+for native routing. The earlier
+[[https://github.com/nixos-homelab/networking/tree/main/nix/modules/cilium][nixos-homelab/networking Cilium module]]
+confirmed the same native-routing shape.
+
 Earlier failed attempts rolled back:
 
 - removed the Cilium release and CNI files;
