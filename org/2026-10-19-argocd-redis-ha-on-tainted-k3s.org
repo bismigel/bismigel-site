@@ -99,6 +99,28 @@ explicit toleration. That is a cluster decision, not a chart defect.
 The bootstrap script now applies the HA resources, adds the toleration and sets
 the HAProxy endpoint, so a rebuild does not depend on manual patches.
 
+* Sentinel CPU spin
+
+Redis HA has a known sentinel bug. After a restart, one or two sentinel
+containers can pin a full CPU core with no useful log output. ArgoCD stays
+healthy, but the core burn is real.
+
+The workaround is a delayed sentinel reset after startup:
+
+#+begin_src yaml
+lifecycle:
+  postStart:
+    exec:
+      command: ["/bin/sh", "-c", "sleep 30; redis-cli -p 26379 sentinel reset argocd"]
+#+end_src
+
+The bootstrap script applies that to the sentinel container. It is a workaround,
+not an upstream fix.
+
+- Redis bug: https://github.com/redis/redis/issues/9956
+- ArgoCD bug: https://github.com/argoproj/argo-cd/issues/16360
+- Patch reference: https://github.com/utilitywarehouse/system-manifests/pull/286
+
 * Links
 
 - ArgoCD high availability:
