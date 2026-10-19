@@ -34,7 +34,7 @@ flowchart LR
   I --> IM["immich"]
   I --> K["karakeep"]
   I --> M["media"]
-  I --> Z["zeroclaw"]
+  I --> Z["agent"]
   A <--> B
   A <--> M
   M <--> DL
@@ -60,7 +60,7 @@ flowchart LR
   I --> IM["immich"]
   I --> K["karakeep"]
   I --> M["media"]
-  I --> Z["zeroclaw"]
+  I --> Z["agent"]
   M --> B
   M --> D
   M --> DL
@@ -93,7 +93,7 @@ allowed same-namespace traffic and ingress-nginx only. The public page returned
 200, Meilisearch worked, and a pod outside the namespace was refused.
 
 Then the rest: apps, books, default, downloads, homepage, immich, karakeep,
-media and zeroclaw.
+media and the agent.
 
 * What broke, and what it taught me
 

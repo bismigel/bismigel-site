@@ -291,7 +291,7 @@ the OTP flow; NextAuth is the gate.
 * 12. The agent (Hermes)
 
 Hermes is an in-cluster AI agent and the lab's SRE. The namespace and ArgoCD app
-are still named `zeroclaw` for historical reasons; the workload is `hermes`.
+use the legacy namespace `zeroclaw` for historical reasons; the workload is `hermes`.
 
 It runs as a Deployment with a 10Gi PVC at `/opt/data` for config, sessions,
 memory and cron. It uses DeepSeek `deepseek-chat`. The dashboard is
