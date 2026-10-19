@@ -215,8 +215,9 @@ A pod could reach another pod directly, including cross-node. It could not reach
 the node IP or anything outside. The test cluster did not reproduce that. I removed the old Flannel CNI config
 entirely and repeated the production install. The result was the same. That rules out the stale config. I then built a two-node k3s 1.34 test cluster
 and reproduced the same failure. A two-node k3s 1.36 cluster works. The Cilium
-version and policy config are not the problem; the k3s 1.34 path is. The next
-step is a k3s upgrade, not more Cilium tuning.
+version and policy config are not the problem; the k3s 1.34 path is. I then upgraded production k3s to 1.36 and retried Cilium. It still failed. The
+test 1.36 cluster runs kernel 6.18; production runs 6.12.78. The remaining
+suspect is the production kernel, not k3s or the Cilium policy config.
 
 I rolled back:
 
