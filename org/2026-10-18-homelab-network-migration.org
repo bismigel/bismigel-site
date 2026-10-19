@@ -1,7 +1,7 @@
-#+TITLE: Homelab network migration: NetworkPolicies, egress and a Cilium rollback
+#+TITLE: Homelab network migration: NetworkPolicies, egress and Cilium
 #+DATE: 2026-10-18T18:00:00-04:00
 #+FILETAGS: homelab:kubernetes:network:cilium
-#+DESCRIPTION: A real network migration in a three-node k3s homelab: ingress and egress policies, SLOs, a single-node Cilium test that worked, and a multi-node Cilium retry that did not.
+#+DESCRIPTION: A real network migration in a three-node k3s homelab: ingress and egress policies, SLOs, and a Cilium migration that ended with VXLAN and a stale Flannel interface.
 
 #+begin_quote
 *Building the lab: afterword.* (Not part of the numbered series.)
@@ -160,99 +160,22 @@ rules, and never loaded the edge or SLO alerts. The reload endpoint returned
 500, but I had not checked it. Fixing the YAML indentation fixed both the edge
 alerts and the SLO rules.
 
-* The Cilium test cluster
+* Cilium, finally
 
-I did not want to test a CNI swap on the production cluster again without a
-smaller proof. So I built a single-node k3s VM with Flannel disabled:
+The Cilium failures were not a kernel bug. The old Flannel =flannel.1=
+interface was still up on every node and held UDP 8472. Cilium could not start
+its VXLAN device: =address already in use=. Native routing avoided the
+collision, so it looked like a kernel difference. After deleting the stale
+interface, VXLAN worked on the same kernel.
 
-- k3s 1.36 in a QEMU VM;
-- =--flannel-backend=none= and =--disable-network-policy=;
-- Cilium 1.20.3 with =kubeProxyReplacement=false=;
-- =ipam.mode=kubernetes=;
-- CNI config in =/etc/cni/net.d= and binaries in =/opt/cni/bin=.
+Production now uses VXLAN encapsulation with kube-proxy. The NixOS firewall
+trusts =cni+= and sets =checkReversePath=false=. A oneshot removes a stale
+=flannel.1= before k3s starts.
 
-The first install had the same CNI path problem as production. Once the paths
-were right, the test cluster worked:
-
-- pod to ClusterIP: 401 from the API server;
-- pod to the internet: 301 from the test URL;
-- hostPort: 200 after adding the =portmap= plugin to the Cilium CNI config.
-
-That last part matters. Cilium's default CNI config does not include =portmap=,
-and Jellyfin's LAN TV path needs hostPort. I added a =portmap= plugin through a
-custom CNI ConfigMap.
-
-* The two-node test
-
-A single node does not prove a multi-node cluster, so I built two k3s 1.36 VMs
-connected by a QEMU socket network. The server and agent both joined the same
-cluster with Flannel disabled.
-
-Cilium 1.20.3 worked on both nodes:
-
-- pod to ClusterIP: 401 from the API server, from both nodes;
-- pod to external IP: 301, from both nodes;
-- hostPort: 200 with the custom portmap CNI config;
-- Cilium cluster health: 2/2 reachable.
-
-DNS in that test cluster failed because CoreDNS forwarded to the VM's
-systemd-resolved address, 127.0.0.53, from the pod network. That is a test VM
-resolv.conf issue, not a Cilium issue. External access by IP worked.
-
-* The production retry
-
-The single-node test proved the config. I retried Bakuran with the same Cilium
-version, a clean Flannel-free boot, and the custom CNI config. The nodes became
-Ready. Cilium agents ran. Cross-node pod-to-pod traffic worked.
-
-Then the same failure returned:
-
-- pods could not reach ClusterIP services;
-- pods could not reach the Kubernetes API;
-- pods could not reach the internet.
-
-A pod could reach another pod directly, including cross-node. It could not reach
-the node IP or anything outside. The test cluster did not reproduce that. I removed the old Flannel CNI config
-entirely and repeated the production install. The result was the same. That rules out the stale config. I then built a two-node k3s 1.34 test cluster
-and reproduced the same failure. A two-node k3s 1.36 cluster works. The Cilium
-version and policy config are not the problem; the k3s 1.34 path is. I then upgraded production k3s to 1.36 and retried Cilium. It still failed. The
-working 1.36 test cluster runs kernel 6.18; production runs 6.12.78. Cilium
-documents 5.10 or newer as supported, and the production kernel has the BPF,
-ipset, VXLAN and FIB_RULES options. So this is not a missing requirement. The remaining difference is
-routing mode. A k3s 1.34 test cluster on the same 6.12 kernel works with native
-routing and kube-proxy: service traffic returns 200, and pod egress reaches
-both the host and 1.1.1.1. The tunnel plus kube-proxy combination fails on this
-kernel. Native routing with =autoDirectNodeRoutes= is the next production
-candidate.
-
-The candidate worked. The 1.34 test cluster returned 200 for service traffic
-and reached both the host and 1.1.1.1. I cut production over: disabled Flannel,
-trusted the =cni+= interfaces, set =checkReversePath=false=, and installed
-Cilium 1.20.3 with native routing, =autoDirectNodeRoutes=true= and kube-proxy.
-All three nodes are Ready, Cilium health is 3/3, public sites return 200, and
-Jellyfin's LAN hostPort returns 200. Longhorn and ArgoCD pods needed recreation
-to receive Cilium IPs. Cilium is now managed by ArgoCD in =bakuran-gitops=.
-
-The working configuration came from
-[[https://github.com/niki-on-github/nixos-k3s][niki-on-github/nixos-k3s]],
-specifically =systems/x86_64-linux/supermicro-k3s/default.nix= for the k3s and
-firewall flags and =kubernetes/core/networking/cilium/operator/helm-values.yaml=
-for native routing. The earlier
-[[https://github.com/nixos-homelab/networking/tree/main/nix/modules/cilium][nixos-homelab/networking Cilium module]]
-confirmed the same native-routing shape.
-
-Earlier failed attempts rolled back:
-
-- removed the Cilium release and CNI files;
-- restored Flannel;
-- deployed the k3s flags back;
-- removed stale Cilium iptables and policy-routing rules;
-- rebooted the nodes;
-- remounted the NFS media branches on =.81= and restarted Kavita and
-  LazyLibrarian.
-
-The uninstall had left stale rules that broke etcd leader election. That was the
-scariest part. The etcd data was intact. The rules were not.
+The full comparison is in
+[[file:2026-10-19-native-vs-encapsulation.org][Native vs encapsulation]].
+The failure path is in
+[[file:2026-10-19-cilium-vxlan-troubleshooting.org][the VXLAN troubleshooting guide]].
 
 * Lessons
 
@@ -275,16 +198,15 @@ scariest part. The etcd data was intact. The rules were not.
 
 * What is next
 
-Cilium and Hubble are deferred. The native NetworkPolicy work, egress policies,
-SLOs, the admin ingress controller and the golden path are in place. The next safe steps are:
+Cilium now runs with VXLAN, and the trust-zone edge is live. The remaining
+work is less about the packet path:
 
-- decide whether to retry Cilium with kube-proxy replacement or CNI chaining;
-- test that path in a multi-node disposable cluster;
-- finish the trust-zone switch after the Cloudflare route change;
-- keep the DR rehearsal on the list.
+- finish the full DR rehearsal;
+- close the image pinning gap;
+- rotate the overprivileged Cloudflare token;
+- keep the backup and alert checks honest.
 
-The lab is not hiding from the network any more. It is just not ready to hand
-the packet path to Cilium yet.
+The lab is no longer avoiding the network. It is running it.
 
 #+begin_quote
 *Building the lab: afterword.* Previous: [[file:2026-10-18-homelab-epilogue.org][Homelab epilogue: exposing services and publishing the repo]].

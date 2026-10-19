@@ -1,0 +1,111 @@
+#+TITLE: Cilium VXLAN troubleshooting: port 8472 already in use
+#+DATE: 2026-10-19T09:30:00-04:00
+#+FILETAGS: homelab:kubernetes:cilium:troubleshooting
+#+DESCRIPTION: How a stale Flannel interface broke Cilium VXLAN on a NixOS k3s cluster, and the checks that found it.
+
+Cilium was healthy in native routing. After switching to VXLAN, new pods stayed
+in =ContainerCreating= and Cilium health was unreachable. The cause was not the
+kernel or the firewall.
+
+* Symptoms
+
+- =cilium-dbg status= showed =Routing: Tunnel [vxlan]=.
+- New pods stayed in =ContainerCreating=.
+- Cilium health warned that the health daemon was unreachable.
+- Existing pods could still serve traffic.
+- Cilium agent logs showed:
+
+#+begin_src text
+failed to setup vxlan tunnel device:
+  address already in use
+#+end_src
+
+* Checks
+
+Run these on the node:
+
+#+begin_src bash
+ip -d link show type vxlan
+ss -lunp | grep 8472
+ip -d link show cilium_vxlan
+ip -4 route
+ip -4 rule
+
+Check the Cilium agent log:
+
+#+begin_src bash
+kubectl -n kube-system logs ds/cilium --tail=100 |
+  grep -Ei 'vxlan|8472|address already|datapath'
+#+end_src
+
+In this lab the output showed two VXLAN devices:
+
+- =flannel.1=, still UP and bound to UDP 8472;
+- =cilium_vxlan=, DOWN because Cilium could not bind the same port.
+
+Flannel was disabled in k3s, but the old interface survived the CNI migration.
+
+* Fix
+
+Remove the stale interface, then restart Cilium:
+
+#+begin_src bash
+ip link del flannel.1
+kubectl -n kube-system rollout restart ds/cilium
+#+end_src
+
+On NixOS, make it survive a reboot:
+
+#+begin_src nix
+systemd.services.cleanup-flannel-vxlan = {
+  description = "Remove a stale Flannel VXLAN interface";
+  before = [ "k3s.service" ];
+  wantedBy = [ "multi-user.target" ];
+  serviceConfig = {
+    Type = "oneshot";
+    RemainAfterExit = true;
+  };
+  script = "ip link del flannel.1 2>/dev/null || true";
+};
+#+end_src
+
+* Verify
+
+#+begin_src bash
+ip -d link show cilium_vxlan
+ss -lunp | grep 8472
+kubectl -n kube-system exec ds/cilium -- cilium-dbg status
+
+kubectl run nettest --image=curlimages/curl:8.10.1 --restart=Never --command -- \
+  sh -c 'curl -s -o /dev/null -w "%{http_code}\n" https://example.com'
+#+end_src
+
+Expected:
+
+- =cilium_vxlan= is UP;
+- UDP 8472 is owned by Cilium;
+- new pods reach =Running=;
+- DNS, external egress and ClusterIP work;
+- =cilium-dbg status= health is 3/3.
+
+* Why native routing hid it
+
+Native routing never creates a VXLAN device, so a stale =flannel.1= interface
+did not matter. The tunnel failure looked like a kernel difference because
+native worked on the same hosts.
+
+Two other settings still matter:
+
+- =networking.firewall.checkReversePath = false= on NixOS;
+- the fwmark overlap case when another VPN uses policy routing.
+
+References:
+
+- Cilium routing:
+  https://docs.cilium.io/en/stable/network/concepts/routing/
+- NixOS rpfilter issue:
+  https://github.com/lucas-albers-lz4/rke2nixos/issues/10
+- fwmark collision:
+  https://pokgak.xyz/notes/cilium-vxlan-tailscale-fwmark-collision/
+- Native vs encapsulation:
+  [[file:2026-10-19-native-vs-encapsulation.org][Native vs encapsulated routing for a small homelab]]
