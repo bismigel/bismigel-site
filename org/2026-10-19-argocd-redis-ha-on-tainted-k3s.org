@@ -1,0 +1,111 @@
+#+TITLE: ArgoCD Redis HA on a tainted k3s cluster
+#+DATE: 2026-10-19T14:00:00-04:00
+#+FILETAGS: homelab:kubernetes:argocd:redis
+#+DESCRIPTION: Making ArgoCD Redis highly available on three nodes, including the taint and anti-affinity problem that left Redis pods Pending.
+
+ArgoCD stores desired state in etcd. Redis is a cache. Losing Redis pauses
+reconciliation, but it does not take down running workloads. That made the
+single Redis pod easy to ignore, until it became the last obvious single point
+of failure in the control plane.
+
+This is the retry that worked.
+
+* The setup
+
+The cluster has three k3s nodes. Two are general schedulers. The third,
+=kamatis-mbp=, is control-plane and etcd only, with a =NoSchedule= taint.
+
+I used the official ArgoCD HA Redis resources, not the previous third-party
+chart attempt:
+
+- three Redis servers with sentinel;
+- three HAProxy pods;
+- headless announce services for sentinel discovery;
+- ArgoCD pointed at =argocd-redis-ha-haproxy:6379=.
+
+The official HA manifest is here:
+https://github.com/argoproj/argo-cd/blob/master/manifests/ha/install.yaml
+
+* What failed
+
+Redis was healthy on two nodes. The third pod stayed Pending:
+
+#+begin_src text
+0/3 nodes are available:
+  1 node(s) had untolerated taint(s),
+  2 node(s) didn't match pod anti-affinity rules.
+#+end_src
+
+The HA manifests use required pod anti-affinity so Redis and sentinel are spread
+across three nodes. That is correct for quorum. But the third node was tainted,
+so the scheduler had no legal place to put the third replica.
+
+The first HAProxy pod hit the same wall. During the rollout, old HAProxy pods also
+held their nodes, so a replacement stayed Pending even after the new ReplicaSet
+was ready.
+
+* The fix
+
+Add a toleration for the control-plane taint to both the Redis StatefulSet and
+the HAProxy Deployment:
+
+#+begin_src bash
+TOL='[{"key":"node-role.kubernetes.io/control-plane","operator":"Exists","effect":"NoSchedule"}]'
+
+kubectl -n argocd patch statefulset argocd-redis-ha-server --type merge \
+  -p "{\"spec\":{\"template\":{\"spec\":{\"tolerations\":$TOL}}}}"
+
+kubectl -n argocd patch deploy argocd-redis-ha-haproxy --type merge \
+  -p "{\"spec\":{\"template\":{\"spec\":{\"tolerations\":$TOL}}}}"
+#+end_src
+
+Then remove the stale rolling pods so the scheduler can place the replacements.
+Finally point ArgoCD at HAProxy:
+
+#+begin_src bash
+kubectl -n argocd patch configmap argocd-cmd-params-cm --type merge \
+  -p '{"data":{"redis.server":"argocd-redis-ha-haproxy:6379"}}'
+
+kubectl -n argocd rollout restart \
+  deploy/argocd-server deploy/argocd-repo-server \
+  deploy/argocd-applicationset-controller \
+  statefulset/argocd-application-controller
+#+end_src
+
+* Verify
+
+#+begin_src bash
+kubectl -n argocd get pods -l 'app.kubernetes.io/name in (argocd-redis-ha,argocd-redis-ha-haproxy)'
+kubectl -n argocd get app root
+kubectl -n argocd logs deploy/argocd-repo-server --tail=50
+#+end_src
+
+Expected:
+
+- three Redis server pods at =3/3=;
+- three HAProxy pods at =1/1=;
+- ArgoCD root app Synced and Healthy;
+- no Redis connection errors in the repo server.
+
+The old single Redis deployment is still present as a fallback. Remove it after a
+soak period, not during the first cutover.
+
+* Why this was not a Redis bug
+
+The failure was scheduling policy, not Redis, sentinel or ArgoCD. The official HA
+manifest assumes three schedulable nodes. A tainted control-plane node needs an
+explicit toleration. That is a cluster decision, not a chart defect.
+
+The bootstrap script now applies the HA resources, adds the toleration and sets
+the HAProxy endpoint, so a rebuild does not depend on manual patches.
+
+* Links
+
+- ArgoCD high availability:
+  https://argo-cd.readthedocs.io/en/stable/operator-manual/high_availability/
+- Official HA install manifest:
+  https://github.com/argoproj/argo-cd/blob/master/manifests/ha/install.yaml
+- Kubernetes taints and tolerations:
+  https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/
+- The edge split and Cilium migration:
+  [[file:2026-10-18-homelab-network-migration.org][Homelab network migration]]
