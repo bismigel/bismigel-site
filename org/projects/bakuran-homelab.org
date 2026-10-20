@@ -292,10 +292,16 @@ images. No bookmark content leaves the LAN. The public hostname is not Access-ga
 because the mobile apps cannot do
 the OTP flow; NextAuth is the gate.
 
-* 12. The agent (Hermes)
+* 12. The agent (Duwende)
 
-Hermes is an in-cluster AI agent and the lab's SRE. The namespace and ArgoCD app
-use the legacy namespace `zeroclaw` for historical reasons; the workload is `hermes`.
+*Why "Duwende"*
+
+A duwende is a small household spirit in Philippine folklore, a caretaker of the
+home and yard. The lab already has a bakuran, so its resident helper is named
+Duwende. It is meant to be helpful and a little mischievous, not a product name.
+
+The agent is an in-cluster AI SRE. The namespace and ArgoCD app are now
+`duwende`; the upstream workload and dashboard still use the Hermes name.
 
 It runs as a Deployment with a 10Gi PVC at `/opt/data` for config, sessions,
 memory and cron. It uses DeepSeek `deepseek-chat`. The dashboard is
