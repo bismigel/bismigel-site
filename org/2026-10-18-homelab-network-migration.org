@@ -16,8 +16,8 @@ them to Bakuran: isolate application namespaces, close egress where possible,
 split the admin path from the public path, and add SLOs. I also wanted Cilium
 and Hubble for flow visibility.
 
-Most of that is live. The Cilium part is not. That failure is the most useful
-part of the story.
+Most of that is live. Cilium was the hard part, and it is live now. The failure
+and the fix are the most useful part of the story.
 
 * What the network looked like before
 

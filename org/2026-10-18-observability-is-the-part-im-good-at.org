@@ -117,9 +117,9 @@ Instead, a small DaemonSet runs =socat= in each node's host network namespace:
 #+end_example
 
 Prometheus scrapes it through the normal annotation-driven pod job. There was one
-firewall surprise: the rule needed the pod CIDR *and* the node IPs. Flannel rewrites the
-source address when traffic crosses nodes, so allowing only the pod network was not
-enough.
+firewall surprise: the rule needed the pod CIDR *and* the node IPs. At the time the CNI was Flannel,
+which rewrote the source address when traffic crossed nodes, so allowing only the
+pod network was not enough.
 
 ** Power: Kepler, scraped pod by pod
 
@@ -242,8 +242,8 @@ login alerts work the same way. Both still end up in Telegram with everything el
 
 - kube-state-metrics was up with zero samples. A target can answer and still be useless.
 - node-exporter was reading the container's root, so the media pool did not exist.
-- The etcd relay looked blocked until I allowed the node IPs as well as the pod CIDR;
-  flannel's source rewriting was the missing piece.
+  - The etcd relay looked blocked until I allowed the node IPs as well as the pod CIDR;
+    the CNI source rewriting at the time was the missing piece.
 - Kepler scraped through a Service gave gaps. Scraping the pods directly fixed it.
 - A dashboard without a datasource shows "No data", not an error. I spent time looking
   for a Prometheus problem that was a Grafana panel setting.

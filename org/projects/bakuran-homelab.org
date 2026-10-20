@@ -8,7 +8,7 @@
 | Field | Value |
 |-------+-------|
 | Document | Bakuran homelab: technical reference |
-| Version | *2026-10-17* (first definitive version) |
+| Version | *2026-10-20* (Redis HA and Cilium correction) |
 | Scope | Hardware, network edge, cluster, storage, delivery, services, observability, backups, security |
 | Audience | Future me, anyone reviewing the design, and the agent that helps run it |
 | Redactions | Internal addresses, account identifiers and credentials are omitted on purpose |
@@ -131,8 +131,8 @@ One **k3s cluster with three embedded-etcd members**, not three clusters. This
 is the most important simplification in the lab: one API server, one ArgoCD, one
 set of CRDs, one place to look.
 
-- Kubernetes v1.34 (k3s packaging), containerd, Flannel.
-- Three server nodes; the MacBook is tainted so only Immich opts in.
+- Kubernetes v1.36.5+k3s1, containerd, Cilium VXLAN with kube-proxy.
+- Three server nodes; the MacBook is tainted so only Immich and the Redis HA replicas opt in with explicit tolerations.
 - Workloads are pinned where their hardware lives (media on the Intel box for
   QuickSync and local storage; Immich on the MacBook; platform pieces anywhere).
 - Ingress runs with two replicas; cloudflared connectors run on two nodes.
@@ -210,10 +210,14 @@ Reproducibility rules that came out of real failures:
   Kubernetes secrets are materialised from it. Host-level secrets use SOPS/age.
 - *Monitoring*: Prometheus, Alertmanager and Grafana. Scrapes node-exporter,
   kube-state-metrics, Kepler (power) and the ArgoCD controller endpoints.
-- *Kepler*: per-node power/energy metrics; useful for capacity and for noticing
-  a runaway transcode.
-- *Hermes*: in-cluster AI agent and SRE; read-only tools and guardrails.
-- *Homepage*: a single landing page for every service.
+  - *Kepler*: per-node power/energy metrics; useful for capacity and for noticing
+    a runaway transcode.
+  - *ArgoCD*: Helm release `argocd`, chart `argo-cd` 10.10.5. Redis HA runs three
+    Redis/sentinel pods and three HAProxy pods. The per-pod announce Services are
+    made headless by a Helm post-renderer, because the chart otherwise puts
+    sentinel behind a ClusterIP.
+  - *Hermes*: in-cluster AI agent and SRE; read-only tools and guardrails.
+  - *Homepage*: a single landing page for every service.
 
 * 8. Media platform
 
@@ -438,10 +442,11 @@ what make the next rebuild boring. That is the goal.
 
 - Branch protection is on for public repos; private repos on the free plan still
   rely on the workstation hook.
-- HSTS is not enabled. Rate limiting and MFA on Access are limited by the free
-  plan and the identity provider.
-- Zero-touch rebuild is not complete: bootstrap is one command, not zero.
-- No SLOs or error budgets yet; alerts are symptom-based.
+  - HSTS is enforced at Cloudflare. Rate limiting and MFA on Access are limited by
+    the free plan and the identity provider.
+  - Zero-touch rebuild is not complete: bootstrap is one command, not zero.
+  - SLOs cover the public probes and error budgets; internal services still rely on
+    symptom-based alerts.
 - No secrets rotation schedule.
 - Media is unbacked by design; the trade-off is documented, not solved.
 - Full DR rehearsal (rebuild a host, restore everything) is still a manual plan.
@@ -450,6 +455,7 @@ what make the next rebuild boring. That is the goal.
 
 | Version | Date | Change |
 |---------+------+--------|
+| 2026-10-20 | 2026-10-20 | Redis HA corrected to the Helm chart post-renderer path; Cilium VXLAN, Kubernetes version, HSTS and SLO status updated |
 | 2026-10-18 | 2026-10-18 | Hermes SRE details; current edge monitoring and dashboards; image-pinning status clarified |
 | 2026-10-17 | 2026-10-17 | First definitive version: full architecture, backups/verification, security posture, failure modes |
 
