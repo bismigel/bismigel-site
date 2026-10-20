@@ -3,6 +3,12 @@
 #+FILETAGS: homelab:kubernetes:argocd:redis
 #+DESCRIPTION: Making ArgoCD Redis highly available on three nodes, including the taint and anti-affinity problem that left Redis pods Pending.
 
+#+begin_quote
+*Update 2026-10-20:* This post documents the official-manifest attempt. Production
+later moved to the Helm chart with a headless announce post-renderer. The
+follow-up is [[file:2026-10-20-argocd-redis-ha-through-the-chart.org][Getting ArgoCD Redis HA through the chart, not around it]].
+#+end_quote
+
 ArgoCD stores desired state in etcd. Redis is a cache. Losing Redis pauses
 reconciliation, but it does not take down running workloads. That made the
 single Redis pod easy to ignore, until it became the last obvious single point
@@ -87,8 +93,9 @@ Expected:
 - ArgoCD root app Synced and Healthy;
 - no Redis connection errors in the repo server.
 
-The old single Redis deployment is still present as a fallback. Remove it after a
-soak period, not during the first cutover.
+At the time, the old single Redis deployment was kept as a fallback. The
+follow-up replaced this path with chart-managed HA; the fallback is now a Helm
+rollback revision, not a running second Redis.
 
 * Why this was not a Redis bug
 
@@ -114,8 +121,10 @@ lifecycle:
       command: ["/bin/sh", "-c", "sleep 30; redis-cli -p 26379 sentinel reset argocd"]
 #+end_src
 
-The bootstrap script applies that to the sentinel container. It is a workaround,
-not an upstream fix.
+The official-manifest bootstrap applied that to the sentinel container. The Helm
+chart path does not. There, container CPU alerts and the Redis HA alerts are the
+safety net; apply the same reset by hand if a sentinel pins a core. It is a
+workaround, not an upstream fix.
 
 - Redis bug: https://github.com/redis/redis/issues/9956
 - ArgoCD bug: https://github.com/argoproj/argo-cd/issues/16360

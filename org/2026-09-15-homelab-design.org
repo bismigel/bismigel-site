@@ -25,9 +25,12 @@ I have two computers. I did not plan how to split the work between them.
   because this CPU supports QuickSync. QuickSync means it can convert video in
   hardware. It runs the media apps.
 
-Later, a third machine turned up: a 2012 MacBook Pro I found under a pile of
-cables. It only helps the cluster stay alive and does not run any apps. I write
-about it in a later post.
+  Later, a third machine turned up: a 2012 MacBook Pro I found under a pile of
+  cables. At that point it only helped the cluster stay alive and did not run any
+  apps. I write about it in a later post.
+
+  *Update 2026-10-20:* the MacBook now runs Immich and one Redis HA replica. The
+  taint remains, and both workloads opt in with explicit tolerations.
 
 * NixOS
 
