@@ -1,0 +1,141 @@
+#+TITLE: Moving the Cloudflare edge from a shell script to OpenTofu
+#+DATE: 2026-10-20T18:00:00-04:00
+#+FILETAGS: homelab:cloudflare:opentofu:gitops
+#+DESCRIPTION: How the Bakuran Cloudflare edge moved from a daily sync.sh run to OpenTofu, including imports, R2 state locking and the parts that could not be imported.
+
+For a year the Cloudflare edge was a shell script. It created tunnel routes,
+DNS records, Access applications, zone settings and R2 lifecycle rules. A daily
+timer ran it on the platform node so manual dashboard edits would not survive.
+
+That worked, but it was still a script mutating live infrastructure. OpenTofu
+made the edge reviewable: one plan, one state, one place to see what changed.
+
+This is how the migration went.
+
+* What was already in the edge
+
+The account has three zones:
+
+- =bismigel.dev=, with 21 DNS records;
+- =ciceley.cc=, with two records;
+- =miguelarbis.dev=, with three records.
+
+There is one remote-managed Cloudflare Tunnel, seven Access applications, four
+security zone settings and one R2 lifecycle policy. The old script owned all of
+it.
+
+* Importing one resource at a time
+
+I did not import everything at once. I started with one DNS record and checked
+that =tofu plan= was a no-op. Then I expanded to the rest of the zone, the tunnel
+ingress configuration, the Access applications, zone settings and finally R2.
+
+The final state covers:
+
+- 26 DNS records across three zones;
+- the tunnel ingress configuration;
+- seven Access applications with their app-scoped policy references;
+- =ssl=, =min_tls_version=, =always_use_https= and =security_header=;
+- the R2 lifecycle rules for =homelab-backups=.
+
+~tofu plan~ is clean.
+
+* The parts that did not import cleanly
+
+** Access API timeouts
+
+The first Access import attempts returned =504= from the account-level API. The
+Cloudflare status page showed a partial outage while the Access component itself
+showed operational. I did not rotate the token or change the provider. I waited
+and retried.
+
+When the API recovered, all seven applications imported:
+
+#+begin_src text
+Successfully imported cloudflare_zero_trust_access_application.books
+...
+#+end_src
+
+The policies are inline, app-scoped policies. The application resource imports
+their references, so there is no separate reusable policy resource.
+
+** R2 lifecycle has no import
+
+The provider documentation is explicit:
+
+#+begin_quote
+This resource does not currently support =terraform import=.
+#+end_quote
+
+Instead of leaving R2 in the shell script, I created the
+=cloudflare_r2_bucket_lifecycle= resource over the existing rules. OpenTofu
+adopted the four rules in place. The plan was clean afterward.
+
+There is a sharp edge: OpenTofu cannot destroy this resource. Removing it from
+configuration and applying would drop it from state, not delete the rules. That
+is documented in the repo.
+
+* State on R2, with native locking
+
+Local state was the next risk. The state now lives in the existing R2 bucket:
+
+#+begin_src hcl
+terraform {
+  backend "s3" {
+    bucket                      = "homelab-backups"
+    key                         = "opentofu/cloudflare/terraform.tfstate"
+    region                      = "auto"
+    endpoints                   = { s3 = "https://<account>.r2.cloudflarestorage.com" }
+    use_path_style              = true
+    skip_credentials_validation = true
+    skip_region_validation      = true
+    skip_requesting_account_id  = true
+    skip_s3_checksum            = true
+    use_lockfile                = true
+  }
+}
+#+end_src
+
+R2 speaks the S3 API. No AWS account is involved. The credentials are R2 access
+keys from the existing backup environment, not values in the repo.
+
+The lock works. I started two plans at once. The second one failed with:
+
+#+begin_src text
+StatusCode: 412, api error PreconditionFailed
+#+end_src
+
+That is the S3 native lockfile doing its job. The encrypted state backup remains
+in =r2:homelab-backups/opentofu/= as a recovery copy.
+
+* Retiring the daily writer
+
+Once =tofu plan= was clean, the script had to stop writing. I removed the daily
+Systemd timer from the NixOS module and kept the service for a manual rollback.
+
+That deployment exposed an unrelated build problem: =sops-install-secrets= had
+moved to a Go 1.26 module requirement while the pinned nixpkgs still built Go
+1.25.7. The deployment failed before activation. I pinned =sops-nix= to the last
+Go 1.25-compatible revision and built the package with the matching vendor hash.
+The host deployed, and =cloudflare-sync.timer= no longer exists.
+
+* What I would do differently
+
+- Import the read-only resources first. DNS and tunnel were easy; Access was the
+  one with an API outage.
+- Move state before adding more resources. The migration is simple while the
+  state is small.
+- Test the lock deliberately. A backend without a working lock is just remote
+  storage.
+- Do not treat a clean plan as proof that every resource is covered. The plan is
+  only clean for resources that are in configuration. The old script could still
+  write things OpenTofu did not know about.
+
+* Links
+
+- OpenTofu S3 backend:
+  https://opentofu.org/docs/language/settings/backends/s3/
+- Cloudflare R2 lifecycle resource:
+  https://search.opentofu.org/provider/cloudflare/cloudflare/latest/docs/resources/r2_bucket_lifecycle
+- Cloudflare provider:
+  https://registry.terraform.io/providers/cloudflare/cloudflare/latest/docs
