@@ -1,5 +1,12 @@
 # bismigel.dev
 
+## Why "Bakuran"
+
+Bakuran is Tagalog for the yard or enclosure behind a house, from *bakod*, a
+fence. It is the space where things get built, repaired, and occasionally taken
+apart to see how they work. This site and its homelab posts come from that
+backyard lab: small, personal, and safe to break on purpose.
+
 Personal site. Write in **Org**, convert with **pandoc**, build with **Hugo**
 (the [Omegion](https://github.com/omegion/hugo-omegion) theme), deploy with
 GHCR + ArgoCD.
