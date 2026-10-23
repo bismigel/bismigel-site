@@ -1,0 +1,6 @@
+<nav class="runbook-toc" aria-label="Runbook pages">
+  <div class="runbook-toc-title">Runbook</div>
+  {{ range .CurrentSection.Pages.ByWeight }}
+    <a href="{{ .RelPermalink }}"{{ if eq .RelPermalink $.RelPermalink }} class="active" aria-current="page"{{ end }}>{{ .Title | emojify }}</a>
+  {{ end }}
+</nav>

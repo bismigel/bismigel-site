@@ -1,0 +1,21 @@
+{{ define "main" }}
+  {{ partial "runbook-style.html" . }}
+  <article class="article">
+    <a class="more-link" href="{{ .CurrentSection.RelPermalink }}">&larr; Runbook</a>
+
+    <header class="article-header">
+      <h1>{{ .Title | emojify }}</h1>
+    </header>
+
+    {{ partial "runbook-toc.html" . }}
+
+    {{ with .Content }}
+    <div class="prose">{{ . | emojify }}</div>
+    {{ end }}
+
+    <nav class="runbook-pager" aria-label="Previous and next page">
+      {{ with .PrevInSection }}<a href="{{ .RelPermalink }}">&larr; {{ .Title | emojify }}</a>{{ else }}<span></span>{{ end }}
+      {{ with .NextInSection }}<a href="{{ .RelPermalink }}">{{ .Title | emojify }} &rarr;</a>{{ else }}<span></span>{{ end }}
+    </nav>
+  </article>
+{{ end }}

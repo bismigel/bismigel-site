@@ -1,0 +1,51 @@
+#+TITLE: Jellyfin accounts
+#+SUMMARY: Create, store and retire Jellyfin users — and the 12.x API quirks.
+
+* Preferred: the script
+
+`media-stack-setup.sh` has an idempotent helper that authenticates as admin,
+checks for the user and creates it only if missing:
+
+#+begin_src sh
+# run from nix-station, on the media host; needs the admin creds in the
+# media-setup Secret (seeded from Bitwarden)
+ensure_jellyfin_user <name> "<password>"
+#+end_src
+
+* The API, if you must
+
+#+begin_src sh
+J=http://<media>:8096
+AUTH='Authorization: MediaBrowser Client="setup", Device="setup", DeviceId="setup", Version="1.0.0"'
+TOK=$(curl -s -X POST "$J/Users/AuthenticateByName" -H 'Content-Type: application/json' \
+      -H "$AUTH" -d "{\"Username\":\"<admin>\",\"Pw\":\"<admin-password>\"}" | jq -r .AccessToken)
+curl -s -X POST "$J/Users/New" -H 'Content-Type: application/json' \
+  -H "Authorization: MediaBrowser Token=$TOK" \
+  -d "{\"Name\":\"<name>\",\"Password\":\"<password>\"}"
+#+end_src
+
+Then set library access / policy (dashboard, or `POST /Users/<id>/Policy`).
+
+* Store the password
+
+Add it to Bitwarden Secrets Manager as `jellyfin-<name>`, seed it into the
+in-cluster `media-setup` Secret (the seed script), and add it to the personal
+vault if a person will use it.
+
+* Disable / remove
+
+Disable in the dashboard (user → disable), or flip `IsDisabled` on the user
+policy; delete for a real removal. Locking a *command* (`!lock`) is different —
+that is the bot, not a Jellyfin user.
+
+* Gotchas
+
+- **Jellyfin 12.x header:** `Authorization: MediaBrowser …` is required.
+  `X-Emby-Authorization` returns **400**.
+- **Not a Playback config:** `RemoteClientBitrateLimit` lives in
+  `ServerConfiguration` → `GET/POST /System/Configuration`; there is no
+  `/System/Configuration/Playback`.
+- **Non-root:** the server runs as UID 1000, not root; config and cache are
+  chowned by an init container.
+- **GPU:** the iGPU is a device-plugin resource (`gpu.intel.com/i915`); the
+  container is not privileged.

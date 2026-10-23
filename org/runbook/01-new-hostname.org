@@ -1,0 +1,69 @@
+#+TITLE: Add a public hostname (FQDN)
+#+SUMMARY: Wire a new name through the Ingress, the Cloudflare tunnel and (for admin names) an Access application.
+
+A public name touches three layers: the app's Ingress, the Cloudflare tunnel
+route, and (for admin names) an Access application.
+
+* The Ingress (GitOps)
+
+Add the Ingress in the app's Kubernetes manifests (or `bakuran-gitops`), class
+`nginx` for public names, `nginx-admin` for anything behind Access:
+
+#+begin_src yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: myapp
+  namespace: apps
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: myapp.bismigel.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: myapp
+                port:
+                  number: 8080
+#+end_src
+
+* The tunnel route (Cloudflare)
+
+The tunnel is managed by OpenTofu (`opentofu/cloudflare/tunnel.tf`), so the
+route is a reviewed change there, not a dashboard click. Add a public hostname
+pointing at the ingress:
+
+#+begin_src text
+myapp.bismigel.dev  ->  http://127.0.0.1:32080   # public ingress
+#+end_src
+
+Admin names point at the admin ingress (`http://127.0.0.1:32081`). The
+`services.cloudflared` map in the NixOS config is a *reference fallback only*.
+
+* Access vs public
+
+- **Admin names** (grafana, argocd, prometheus, the *arrs, …) sit on the
+  `nginx-admin` controller and a Cloudflare Access application.
+- **Public names** (jellyfin, immich, kavita, the static site) have no Access;
+  they rely on the application's own login.
+
+Pick deliberately. A name with no auth and no Access is public forever.
+
+* Verify
+
+#+begin_src sh
+dig +short myapp.bismigel.dev
+curl -s -o /dev/null -w '%{http_code}\n' https://myapp.bismigel.dev/
+#+end_src
+
+* Gotchas
+
+- **Rate limiting** applies to the public controller; Jellyfin is exempt (empty
+  `limit_req` key). Admin names are behind Access and not limited.
+- **Free Cloudflare plan**: Access and custom WAF rules are included; rate
+  limiting and managed WAF are not.
+- **TLS at the edge.** Cloudflare terminates TLS; the origin leg is HTTP and no
+  Ingress uses `tls:`.

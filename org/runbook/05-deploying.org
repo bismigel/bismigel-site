@@ -1,0 +1,34 @@
+#+TITLE: Deploying changes
+#+SUMMARY: App, GitOps and NixOS deploys, canary order, and the kubeconfig/forwarding traps.
+
+* An application
+
+Push to the app's `main`. CI builds the image, pushes to GHCR, bumps the tag;
+ArgoCD rolls it out. A docs-only commit should not rebuild an image.
+
+* GitOps manifests
+
+Open a PR against `bakuran-gitops`, merge, and let ArgoCD sync. If you need it
+now:
+
+#+begin_src sh
+kubectl -n argocd annotate application <app> argocd.argoproj.io/refresh=normal --overwrite
+#+end_src
+
+* The OS (NixOS)
+
+#+begin_src sh
+nix run github:serokell/deploy-rs -- .#<host>
+#+end_src
+
+Canary order for a cross-node change: **etcd → media → platform** (quorum
+survives losing one member), verifying between each.
+
+* Gotchas
+
+- **kubeconfig is 0600:** on-host `kubectl` needs root.
+- **A deploy runs `systemd-sysctl`:** pin anything k3s needs (IPv4 forwarding)
+  or it is reset and the cluster loses pod egress until a reboot.
+- **ArgoCD + Jobs:** a `ttlSecondsAfterFinished` on a Job ArgoCD manages makes
+  it re-run forever (selfHeal recreates it); Job pod templates are immutable, so
+  a change needs a new name or a delete-then-sync.

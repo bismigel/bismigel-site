@@ -1,0 +1,63 @@
+#+TITLE: Runbook
+#+SUMMARY: The operational companion to the technical reference: the procedures for the changes that actually get made, and the sharp edge behind each one.
+
+* Document control
+
+| Field      | Value                                                                 |
+|------------+-----------------------------------------------------------------------|
+| Document   | Bakuran operations runbook                                            |
+| Version    | *2026-10-23*                                                          |
+| Audience   | Future me, and the agent that helps run the lab                       |
+| Companion  | [[https://bismigel.dev/projects/bakuran-homelab/][The Bakuran homelab: technical reference]]                           |
+| Access     | Cloudflare Access (runbook.bismigel.dev)                              |
+| Redactions | Secrets, private addresses and account identifiers are omitted on purpose. Values live in Bitwarden / SOPS, never here. |
+
+This is the *how*, not the *what*. The reference explains the design and why it
+looks like this; these pages are what to type when something needs to change,
+and the one gotcha that turns a five-minute change into an evening.
+
+Pick a task from the list below, or start with *Before you start*.
+
+* Before you start
+
+** Conventions
+
+- `platform` = the AMD node (control plane, ArgoCD, ingress, cloudflared).
+- `media` = the Intel node (media stack, QuickSync, `/mnt/media`).
+- `etcd` = the MacBook (etcd quorum, Immich data).
+- `zone` = the Cloudflare zone. `tunnel` = the remote-managed Cloudflare Tunnel.
+- `<name>`, `<host>`, `<provider-host>`, `<zone-id>` are placeholders; the real
+  values are in the private context repo and Bitwarden.
+
+** Access
+
+- **Cluster:** `ssh root@platform` then `sudo k3s kubectl …` (the kubeconfig is
+  `0600`, so on-host kubectl is root-only).
+- **ArgoCD:** `argocd.bismigel.dev`, behind Cloudflare Access.
+- **OS:** from `nix-station`, `nix run github:serokell/deploy-rs -- .#<host>`.
+- **OpenTofu:** runs on `platform` (token and R2 credentials live there).
+- **Secrets:** Bitwarden Secrets Manager (machine, project `homelab-kube`) and
+  SOPS/age (host).
+
+** Golden rules
+
+1. **Pull requests only.** Branch, PR, review, merge. Never push `main`.
+2. **GitOps.** Change `bakuran-gitops` (or the app repo), never hand-edit
+   resources ArgoCD owns. If ArgoCD didn't apply it, it did not happen.
+3. **No secrets in git.** Ever.
+4. **Cloudflare writes are guarded.** Reads are fine; a DNS/tunnel/Access/WAF
+   change is a human, reviewed step.
+5. **Ask before destructive.** Cluster changes, deletes, data loss.
+6. **Cite the source** of a fix (issue link or docs) in the PR.
+
+** "Is it healthy?" in four commands
+
+#+begin_src sh
+kubectl get nodes
+kubectl -n argocd get applications | grep -v 'Synced.*Healthy'
+kubectl -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status | grep 'Cluster health'
+ssh root@platform 'systemctl start homelab-smoke; systemctl show -p Result --value homelab-smoke'
+#+end_src
+
+`homelab-smoke` checks nodes, ArgoCD, Cilium, the public site and the media
+hostPort; it runs every 15 minutes and alerts on failure.

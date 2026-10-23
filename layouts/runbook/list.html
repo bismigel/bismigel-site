@@ -1,0 +1,21 @@
+{{ define "main" }}
+  {{ partial "runbook-style.html" . }}
+  <article class="article">
+    <header class="article-header">
+      <h1>{{ .Title | emojify }}</h1>
+    </header>
+
+    {{ with .Content }}
+    <div class="prose">{{ . | emojify }}</div>
+    {{ end }}
+
+    <nav class="runbook-index" aria-label="Runbook tasks">
+      {{ range .Pages.ByWeight }}
+      <a class="runbook-index-item" href="{{ .RelPermalink }}">
+        <span class="runbook-index-title">{{ .Title | emojify }}</span>
+        {{ with .Params.summary }}<span class="runbook-index-summary">{{ . | emojify }}</span>{{ end }}
+      </a>
+      {{ end }}
+    </nav>
+  </article>
+{{ end }}

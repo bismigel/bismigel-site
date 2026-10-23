@@ -1,0 +1,12 @@
+#+TITLE: Backups and recovery
+#+SUMMARY: What is backed up, how to prove a restore, and the boot order that saves a reboot.
+
+- **Daily:** host keys, kubeconfig, and app data are backed up to R2
+  (`homelab-backup.service` on the hosts, `backup-apps` for the apps).
+- **Restore drills:** a backup that has never been restored is a hypothesis.
+  Run the documented restore check and record the result.
+- **NFS boot order:** bring `platform` up before `media`. If `media` boots first
+  the remote mounts fail and the media pool does not come up.
+- **Full rebuild:** `bakuran-infra/docs/REBUILD.md` plus the R2 credentials
+  backup. Keep the offline copy of the age key somewhere it can actually be
+  reached.
