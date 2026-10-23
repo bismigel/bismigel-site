@@ -1,5 +1,6 @@
 #+TITLE: Add a public hostname (FQDN)
 #+SUMMARY: Wire a new name through the Ingress, the Cloudflare tunnel and (for admin names) an Access application.
+#+GROUP: Operations
 
 A public name touches three layers: the app's Ingress, the Cloudflare tunnel
 route, and (for admin names) an Access application.

@@ -1,19 +1,79 @@
 <style>
-  .runbook-toc {
-    margin: 1.25rem 0 1.75rem;
-    padding: 0.9rem 1.1rem;
-    border: 1px solid rgba(127, 127, 127, 0.28);
-    border-radius: 10px;
-  }
-  .runbook-toc-title { font-weight: 600; margin-bottom: 0.35rem; }
-  .runbook-toc a { display: block; padding: 0.18rem 0; text-decoration: none; }
-  .runbook-toc a.active { font-weight: 700; }
+  /* ---- docs shell (runbook only) ---- */
+  .docs-body { margin: 0; }
 
+  .docs-top {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.55rem 1.1rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+  }
+  .docs-brand, .docs-space { text-decoration: none; color: var(--text); }
+  .docs-brand { font-family: var(--font-logo); letter-spacing: 0.02em; }
+  .docs-slash, .docs-space { color: var(--muted); }
+  .docs-space:hover { color: var(--text); }
+  .docs-spacer { flex: 1; }
+  .docs-theme { display: inline-flex; align-items: center; color: var(--text); }
+
+  .docs-wrap {
+    display: grid;
+    grid-template-columns: 200px minmax(0, 1fr);
+    gap: 2.5rem;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 1.75rem 1.25rem 5rem;
+  }
+
+  .docs-nav {
+    position: sticky;
+    top: 3.4rem;
+    align-self: start;
+    font-size: 0.84rem;
+  }
+  .docs-nav a {
+    display: block;
+    padding: 0.24rem 0.55rem;
+    margin: 0.1rem 0;
+    border-radius: 6px;
+    text-decoration: none;
+    color: var(--muted);
+    line-height: 1.35;
+  }
+  .docs-nav a:hover { color: var(--text); background: rgba(127, 127, 127, 0.08); }
+  .docs-nav a.active { color: var(--text); font-weight: 600; background: rgba(127, 127, 127, 0.13); }
+  .docs-nav-home { font-weight: 600; }
+  .docs-nav-group { margin-top: 1.1rem; }
+  .docs-nav-label {
+    font-size: 0.66rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0.55rem 0.25rem;
+  }
+
+  .docs-content { max-width: 720px; min-width: 0; }
+
+  /* The theme's right-hand TOC is position:fixed; leave it room on wide screens. */
+  @media (min-width: 1280px) {
+    .docs-wrap { padding-right: 260px; }
+  }
+  @media (max-width: 899px) {
+    .docs-wrap { grid-template-columns: 1fr; gap: 1rem; padding-top: 1rem; }
+    .docs-nav { position: static; }
+    .docs-content { max-width: none; }
+  }
+
+  /* ---- landing index cards ---- */
   .runbook-index { display: grid; gap: 0.7rem; margin-top: 1.5rem; }
   .runbook-index-item {
     display: block;
     padding: 0.7rem 0.95rem;
-    border: 1px solid rgba(127, 127, 127, 0.28);
+    border: 1px solid var(--border);
     border-radius: 10px;
     text-decoration: none;
   }
@@ -26,7 +86,7 @@
     gap: 1rem;
     margin-top: 2rem;
     padding-top: 1rem;
-    border-top: 1px solid rgba(127, 127, 127, 0.28);
+    border-top: 1px solid var(--border);
   }
   .runbook-pager a { text-decoration: none; }
 </style>

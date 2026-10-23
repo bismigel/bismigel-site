@@ -1,5 +1,6 @@
 #+TITLE: Add a Usenet provider
 #+SUMMARY: SABnzbd's server list plus the egress allowlist that actually decides whether it works.
+#+GROUP: Operations
 
 The provider is two changes: SABnzbd's server list, and the pod's egress policy
 (the one that bites).

@@ -1,5 +1,6 @@
 #+TITLE: Deploying changes
 #+SUMMARY: App, GitOps and NixOS deploys, canary order, and the kubeconfig/forwarding traps.
+#+GROUP: Platform
 
 * An application
 
