@@ -1,0 +1,208 @@
+#+TITLE: IPv6 packet loss, not slow DNS: why Jellyfin buffered off the LAN
+#+DATE: 2026-10-22T22:15:00-04:00
+#+FILETAGS: homelab:ipv6:cloudflare:jellyfin:network
+#+DESCRIPTION: A Jellyfin buffering report that looked like slow DNS turned out to be intermittent IPv6 packet loss to the Cloudflare edge. How the measurement found it, why it cost 8x of video bitrate, and the zone setting that fixed it.
+
+Buffering from outside the LAN is the kind of report that invites guessing. The
+usual suspects are the transcode, the disk, or the network. This time the
+report came with a detail that did not fit any of them: the site felt slow
+"only at DNS", and from a machine on =192.168.2.0/24= everything was fast.
+
+That detail was the clue. DNS was not slow. One address family was losing
+packets, and everything else followed from that.
+
+* The report
+
+The user was streaming from a remote network. Playback started, stalled after a
+few seconds, restarted, and stalled again. From inside the LAN the same file
+played normally.
+
+The first instinct is to blame the server. The server was idle:
+
+- node CPU 41% of 4 cores, load 2.56, iowait 3.7%;
+- disk utilisation 1.9% on NVMe and 1.45% on the media disk;
+- Jellyfin using 0.51 cores and 783 MiB of a 4 GiB limit;
+- about 1.8 Mbit/s on the wire, which is exactly one stream.
+
+Nothing on the box was the constraint. The Jellyfin log showed the real shape of
+the failure: ffmpeg started and was stopped a dozen times in six minutes, and
+every stop was clean (=FFmpeg exited with code 0=). The server was not crashing.
+The client was giving up and asking again.
+
+* Measure both families
+
+The remote client was dual-stack. I asked for the same request over each family
+on that machine:
+
+#+begin_src bash
+curl -4 -sk -o /dev/null -w "v4 dns=%{time_namelookup} tcp=%{time_connect} ttfb=%{time_starttransfer}\n" https://jellyfin.bismigel.dev/System/Info/Public
+curl -6 -sk -o /dev/null -w "v6 dns=%{time_namelookup} tcp=%{time_connect} ttfb=%{time_starttransfer}\n" https://jellyfin.bismigel.dev/System/Info/Public
+#+end_src
+
+One pair said IPv6 was slow. That was not the whole story, so we ran it five
+more times:
+
+| run | v4 dns | v4 tcp | v4 ttfb | v6 dns | v6 tcp | v6 ttfb |
+|-----+--------+--------+---------+--------+--------+---------|
+|   1 |  0.013 |  0.023 |   0.094 |  0.015 |  1.044 |   1.246 |
+|   2 |  0.015 |  0.025 |   0.185 |  0.015 |  0.025 |   0.240 |
+|   3 |  0.016 |  0.026 |   0.096 |  0.012 |  0.022 |   0.169 |
+|   4 |  0.012 |  0.022 |   0.134 |  0.011 |  0.021 |   0.302 |
+|   5 |  0.012 |  0.023 |   0.078 |  5.016 |  5.027 |   5.215 |
+|   6 |  0.012 |  0.022 |   0.151 |  0.011 |  0.022 |   0.192 |
+
+Look at runs 2, 3, 4 and 6: IPv6 is as fast as IPv4. Twenty milliseconds to
+connect, both families. Then run 1 and run 5 are one and five seconds.
+
+That is not a slow path. That is loss with retransmission:
+
+- =tcp=1.044= is a lost SYN, retried on the kernel backoff;
+- =dns=5.016= is a DNS query that was sent, dropped, and retried on the
+  resolver's five second timer. Nothing had been sent to Cloudflare yet.
+
+My first framing was wrong. I called it a constant 45x penalty after one run.
+Six runs turned it into intermittent loss, which is a different failure and a
+worse one for video, because it breaks in bursts instead of being uniformly
+slow.
+
+* Why it looked like slow DNS
+
+Every hostname in the zone is a proxied CNAME to the tunnel. With Cloudflare
+IPv6 compatibility on, the zone answers both families for all of them:
+
+#+begin_src text
+A     172.64.80.1                              TTL 282
+AAAA  2606:4700:130:436c:6f75:6466:6c61:7265   TTL 282
+#+end_src
+
+A dual-stack client will prefer AAAA. Browsers handle a bad IPv6 path with
+Happy Eyeballs: they race both families and drop the loser after about 250 ms.
+Most native apps do not. Jellyfin's web client is a browser, but its TV and
+mobile clients are not, and neither are the small tools people test with.
+
+So the client sat in the timeout, the user saw a spinner, and the natural report
+is "DNS is slow". For one second or five seconds at a time, that is exactly what
+it was.
+
+* Why loss becomes buffering
+
+TCP throughput falls roughly as =1 / (RTT * sqrt(loss))=. One percent loss is
+not a small tax; it is close to an order of magnitude on a long path.
+
+Jellyfin's HLS player measures the throughput it gets and picks a bitrate from
+it. On the lossy path it measured about 1 Mbit/s and locked into a 720p
+transcode:
+
+#+begin_src text
+02:11:28  -b:v 1116000  ... scale_vaapi=w=1280:h=720 ...
+#+end_src
+
+Every stall also killed the HLS session. The next request started a new ffmpeg
+job, which is the restart storm in the log. The server was doing exactly what it
+was told; the client could not pull the segments fast enough to keep the session
+alive.
+
+* The shape of the path
+
+#+begin_src text
+  dual-stack client
+        |
+        |  1. DNS: A and AAAA, both answered (proxied CNAME to the tunnel)
+        v
+  Cloudflare anycast     172.64.80.1        /  2606:4700:130:436c:...
+        |                      |                        |
+        |  2. client prefers AAAA  ->  loss here -> 1 s connect, 5 s DNS retry
+        |                      |                        |
+        |  3. tunnel connector (cloudflared on .81 and .82, IPv4/QUIC)
+        v
+  ingress-nginx :32080  ->  Jellyfin pod on .81  ->  /mnt/media
+#+end_src
+
+The tunnel is not part of the problem. The connector talks to Cloudflare over
+IPv4 either way. What changes is which family the client uses to reach the edge.
+
+* The fix at the edge, not on the client
+
+There is no per-hostname switch for this. While IPv6 compatibility is on,
+Cloudflare serves AAAA for every proxied record in the zone, and a proxied
+record cannot be made A-only. The options were:
+
+1. fix every client network that has bad IPv6, forever;
+2. turn the zone's IPv6 off, once.
+
+For this lab the second one costs nothing. Everything public is a Cloudflare
+anycast front door in front of a tunnel. No service here needs IPv6, and any
+client that worked was already falling back to IPv4.
+
+The OpenTofu change is four lines, next to the other zone settings:
+
+#+begin_src hcl
+resource "cloudflare_zone_setting" "ipv6" {
+  zone_id    = var.zone_id
+  setting_id = "ipv6"
+  value      = "off"
+}
+#+end_src
+
+That is PR https://github.com/bismigel/bakuran-infra/pull/69. The change went
+in through =tofu apply=, not through the dashboard, so the reason lives in the
+repo next to the setting.
+
+One thing the documentation does not say clearly: Cloudflare's docs present
+turning IPv6 compatibility off as an Enterprise option, and suggest Pseudo IPv4
+for everyone else. On this account the API accepted =ipv6 = off= and the AAAA
+answers stopped. I verified the result instead of trusting the plan:
+
+#+begin_src bash
+curl -s -H 'accept: application/dns-json' \
+  'https://cloudflare-dns.com/dns-query?name=jellyfin.bismigel.dev&type=AAAA'
+# returns no Answer section after the change
+#+end_src
+
+* What it bought
+
+The client had an AAAA cached for the TTL (282 seconds) and an open HTTP/2
+connection, so nothing changed at once. When the page was reloaded, the session
+re-authenticated and the source address changed from =2a02:6ea0:...= to
+=185.98.171.223=. Two things happened in the same minute:
+
+| metric | before | after |
+|--------+--------+-------|
+| source family | IPv6 | IPv4 |
+| target bitrate | 1116000 | 9753335 |
+| downscale | 720p | none |
+| transcoder restarts | every 10 to 30 seconds | one per user seek |
+
+The bitrate went up 8.7x, and the =w=1280:h=720= downscale disappeared from the
+ffmpeg command. The stream was not only smoother, it was higher quality. The
+last restart in the log was a seek to 00:18:46, which is a user action, not a
+failure.
+
+That is the part I did not expect. I thought removing the lossy path would stop
+the buffering. It also let the player re-measure the link and take 9.75 Mbit/s
+instead of 1.1 Mbit/s, because the loss was what made it choose the low ladder
+in the first place.
+
+* What I would do differently
+
+- Measure both address families before theorising. One pair of numbers looked
+  like a constant penalty; six runs showed loss, which is a different diagnosis
+  and a different fix.
+- Treat a 5 second DNS time as a dropped query, not a slow resolver. The number
+  is a timer, not a measurement of distance.
+- Remember that the server can be idle while the user is unhappy. CPU, disk and
+  memory were all clean during the worst of it.
+- Check the cache before declaring a fix live. The client kept using IPv6 for
+  minutes after the zone stopped publishing AAAA, because both the answer and
+  the connection were already open.
+
+* Links
+
+- The change: https://github.com/bismigel/bakuran-infra/pull/69
+- Cloudflare IPv6 compatibility:
+  https://developers.cloudflare.com/network/ipv6-compatibility/
+- Cloudflare zone settings API:
+  https://developers.cloudflare.com/api/resources/zones/subresources/settings/methods/edit/
+- Happy Eyeballs, RFC 8305: https://www.rfc-editor.org/rfc/rfc8305
+- The OpenTofu migration that made this a four line change:
+  https://bismigel.dev/posts/2026-10-20-cloudflare-opentofu-migration/
