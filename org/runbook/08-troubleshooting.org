@@ -1,0 +1,31 @@
+#+TITLE: When something is wrong
+#+SUMMARY: The symptoms table and where the long-form detail lives.
+
+* First, localise
+
+#+begin_src sh
+kubectl get nodes
+kubectl -n <ns> get pods -o wide
+kubectl -n argocd get application <app>
+kubectl -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status
+#+end_src
+
+* Sharp edges worth remembering
+
+| Symptom                                   | Likely cause / fix                                                        |
+|-------------------------------------------+---------------------------------------------------------------------------|
+| Pod can't reach a public host             | Egress allowlist (CIDR/FQDN); test from the pod, not the host             |
+| DNS fails from a pod on one node only     | `src_valid_mark=1` + `accept_local=0` → set `accept_local=1` (DNS proxy)   |
+| Whole cluster loses egress after a deploy | `systemd-sysctl` reset IPv4 forwarding; pin it on                          |
+| ArgoCD Job re-runs every few minutes      | `ttlSecondsAfterFinished` + selfHeal; drop the TTL                        |
+| Job can't be updated                      | Pod template immutable; rename or delete then sync                        |
+| Jellyfin API returns 400                  | Use `Authorization: MediaBrowser …`, not `X-Emby-Authorization`           |
+| Media writes fail over NFS                | mergerfs runs as root; `root_squash` is not safe here                     |
+| Public hostname returns 429               | Ingress rate limit (Jellyfin is exempt); tune burst/rate                  |
+| `kubectl` permission denied on a host     | kubeconfig is 0600; run as root/sudo                                      |
+
+* Where the detail lives
+
+The private context repo carries the exact addresses, identifiers and the
+long-form notes: `HARDENING.md`, `KNOWN-ISSUES.md`, `MEDIA.md`, `RUNBOOK.md`,
+`NEXT-STEPS.md`. These pages are the sanitized public companion.

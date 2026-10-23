@@ -1,0 +1,85 @@
+#+TITLE: Add a Usenet provider
+#+SUMMARY: SABnzbd's server list plus the egress allowlist that actually decides whether it works.
+
+The provider is two changes: SABnzbd's server list, and the pod's egress policy
+(the one that bites).
+
+* Credentials
+
+Store the provider username/password (and any API key) in Bitwarden Secrets
+Manager. Never in a manifest.
+
+* SABnzbd
+
+Config → Servers → add the host, port, TLS and credentials. Typical: NNTP over
+TLS on `563` (alternates `443`, `119`). Save and use **Test Server**.
+
+* Egress (the important part)
+
+SABnzbd runs under default-deny egress. Add the provider's networks to
+`bakuran-gitops/manifests/network-policies/downloads-egress.yaml`:
+
+#+begin_src yaml
+    - toCIDRSet:
+        - cidr: <provider-cidr>       # new provider
+        - cidr: 62.164.182.0/24       # Frugal (example)
+      toPorts:
+        - ports:
+            - { port: "563", protocol: TCP }
+            - { port: "443", protocol: TCP }
+            - { port: "119", protocol: TCP }
+#+end_src
+
+Find the CIDRs from the provider's hostname (RDAP, not guesswork):
+
+#+begin_src sh
+getent ahostsv4 <provider-host> | awk '{print $1}' | sort -u
+curl -sL https://rdap.org/ip/<one-of-those-ips> | jq -r '.cidr0_cidrs[].v4prefix'
+#+end_src
+
+* Why CIDRs and not `toFQDNs`?
+
+The cleaner form is a Cilium FQDN allowlist, and it now works — *if* the DNS
+rule carries an L7 rule:
+
+#+begin_src yaml
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports: [{ port: "53", protocol: ANY }]
+          rules:
+            dns: [{ matchPattern: "*" }]     # without this, toFQDNs is a no-op
+    - toFQDNs:
+        - matchPattern: "*.example-provider.com"
+      toPorts:
+        - ports: [{ port: "563", protocol: TCP }]
+#+end_src
+
+CIDRs are kept because they are DNS-proxy-independent and simple; add the new
+provider's ranges and you are done. If the provider rotates, update the list.
+
+* Verify
+
+#+begin_src sh
+# from the SABnzbd pod (replace the IP with one the provider resolves to)
+kubectl -n downloads exec deploy/sabnzbd -- \
+  bash -c 'timeout 6 bash -c "echo > /dev/tcp/<provider-ip>/563" && echo OK || echo FAIL'
+# and watch the policy verdict
+kubectl -n kube-system exec ds/cilium -c cilium-agent -- \
+  hubble observe --namespace downloads --since 2m --output compact | tail
+#+end_src
+
+* Gotchas
+
+- **Default-deny.** A missing CIDR means "connection timed out", not "denied".
+  Test from the pod, not from the host — the host bypasses the policy.
+- **`toFQDNs` needs the L7 DNS rule** (`rules.dns`). Without it the proxy never
+  learns IPs and everything is denied.
+- **`accept_local`.** On a node where something sets
+  `net.ipv4.conf.all.src_valid_mark=1` (a WireGuard interface), Cilium's
+  transparent DNS proxy drops the marked packet as a martian source unless
+  `accept_local=1` on the pod veth. The NixOS config pins this.
+- **IPv4/IPv6.** The cluster is IPv4-only; a provider that answers AAAA first
+  can look like a broken connection when tested with a v6-preferring tool.

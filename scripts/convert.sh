@@ -137,3 +137,57 @@ done
   done
 
   echo ">> converted ${proj_count} org file(s) into content/projects/"
+
+  # ---- runbook: org/runbook/*.org -> content/runbook/... ----
+  # A multi-page, Access-gated section. index.org is the section landing page;
+  # every other file becomes /runbook/<slug>/ with a weight from its numeric
+  # prefix (01-, 02-, ...) so the sidebar and prev/next order are stable.
+  if [ -d org/runbook ]; then
+    mkdir -p content/runbook
+    runbook_count=0
+    for f in org/runbook/*.org; do
+      [ -e "$f" ] || continue
+      slug="$(basename "$f" .org)"
+      meta() { grep -iE "^#\+$1:" "$f" | head -1 | sed -E "s/^#\+[^:]+:[[:space:]]*//I" || true; }
+      rtitle="$(meta title)"; rsummary="$(meta summary)"
+
+      src="$(mktemp)"; md="$(mktemp)"
+      grep -viE '^#\+(title|summary):' "$f" > "$src"
+      "$PANDOC" -s -f org -t gfm --wrap=none "$src" -o "$md"
+      rm -f "$src"
+      sed -i "s/\\\\'/'/g" "$md"
+      sed -i 's/{\.verbatim}//g' "$md"
+
+      if [ "$slug" = "index" ]; then
+        out="content/runbook/_index.md"
+        {
+          echo "---"
+          echo "title: \"$(yaml_esc "$rtitle")\""
+          echo "summary: \"$(yaml_esc "$rsummary")\""
+          echo "sitemap: {disable: true}"
+          echo "---"
+          echo
+          cat "$md"
+        } > "$out"
+      else
+        weight="$(printf '%s' "$slug" | sed -E 's/^([0-9]+).*/\1/')"
+        case "$weight" in ''|*[!0-9]*) weight=100;; esac
+        weight=$((10#$weight))   # strip leading zeros (01 -> 1)
+        mkdir -p "content/runbook/$slug"
+        out="content/runbook/$slug/index.md"
+        {
+          echo "---"
+          echo "title: \"$(yaml_esc "$rtitle")\""
+          echo "weight: $weight"
+          [ -n "$rsummary" ] && echo "summary: \"$(yaml_esc "$rsummary")\""
+          echo "sitemap: {disable: true}"
+          echo "---"
+          echo
+          cat "$md"
+        } > "$out"
+      fi
+      rm -f "$md"
+      runbook_count=$((runbook_count + 1))
+    done
+    echo ">> converted ${runbook_count} runbook page(s) into content/runbook/"
+  fi
