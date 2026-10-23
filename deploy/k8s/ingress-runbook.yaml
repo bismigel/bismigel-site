@@ -1,0 +1,21 @@
+# The operations runbook is served by the site image but only on this host,
+# through the admin ingress controller and Cloudflare Access. The public
+# bismigel.dev host 404s /projects/runbook (see deploy/nginx.conf).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bismigel-runbook
+  namespace: apps
+spec:
+  ingressClassName: nginx-admin
+  rules:
+    - host: runbook.bismigel.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: bismigel-site
+                port:
+                  number: 80
