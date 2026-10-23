@@ -1,7 +1,7 @@
 #+TITLE: IPv6 packet loss, not slow DNS: why Jellyfin buffered off the LAN
 #+DATE: 2026-10-22T22:15:00-04:00
 #+FILETAGS: homelab:ipv6:cloudflare:jellyfin:network
-#+DESCRIPTION: A Jellyfin buffering report that looked like slow DNS turned out to be intermittent IPv6 packet loss to the Cloudflare edge. How the measurement found it, why it cost 8x of video bitrate, and the zone setting that fixed it.
+#+DESCRIPTION: A Jellyfin buffering report that looked like slow DNS turned out to be intermittent IPv6 packet loss to the Cloudflare edge. How the measurement found it, why it cost 8x of video bitrate, the server bitrate cap hiding underneath it, and what actually limits the lab now.
 
 Buffering from outside the LAN is the kind of report that invites guessing. The
 usual suspects are the transcode, the disk, or the network. This time the
@@ -183,6 +183,48 @@ the buffering. It also let the player re-measure the link and take 9.75 Mbit/s
 instead of 1.1 Mbit/s, because the loss was what made it choose the low ladder
 in the first place.
 
+* The second limit underneath it
+
+With the path fixed, the next test was a 4K file: =Hush (2016)=, 2160p HDR
+HEVC. This time the ffmpeg line said something else:
+
+#+begin_src text
+02:20:03  -b:v 11616000  scale_vaapi=w=2560:h=1072
+          procamp_vaapi, tonemap_vaapi=format=nv12:p=bt709:t=bt709:m=bt709
+02:20:05  MediaInfoHelper: RemoteClientBitrateLimit: 12000000 ...
+#+end_src
+
+The stream was being tone-mapped from HDR to SDR and re-encoded at 11.6 Mbit/s,
+not because of the network this time, but because of a server default: the
+Internet streaming bitrate limit of 12 Mbit/s. It applies to every client
+Jellyfin considers remote, and it caps direct play as well as transcoding. The
+client could ask for 40 Mbit/s and still get 11.6.
+
+That value is not a Kubernetes field. It lives in =config/system.xml= on the
+=jellyfin-config= PVC, which is why nobody sees it in the repo. It is now
+changed to =0= by a one-shot Job that calls the API and verifies the result:
+https://github.com/bismigel/bakuran-gitops/pull/151
+
+Two lessons from that: a transport fix can expose a policy limit underneath it,
+and a setting that lives on a PVC is invisible until it bites.
+
+* What actually limits it now
+
+With both caps gone, the honest ceiling list for this lab, measured rather than
+assumed:
+
+| limit | measured value | what it means |
+|-------+----------------+---------------|
+| node NIC | 1 Gbps each (=node_network_speed_bytes= 125000000) | ~940 Mbit/s per node, about 23 streams at 40 Mbit/s |
+| WAN upload | 3 Gbps | wider than the NIC, so never the binding constraint |
+| CPU for tone-mapped 4K | 0.58 cores per stream | ~6 concurrent before 4 cores saturate |
+| CPU for direct play | near zero (=codec:v copy=) | remux only, limit becomes disk and NIC |
+
+The order matters. Direct play is cheap and the NIC decides. A 4K HDR title
+that needs tone-mapping is expensive and the CPU decides, long before any cable
+does. Four people watching the same HDR film costs 2.3 cores; the fifth starts
+queueing.
+
 * What I would do differently
 
 - Measure both address families before theorising. One pair of numbers looked
@@ -195,10 +237,13 @@ in the first place.
 - Check the cache before declaring a fix live. The client kept using IPv6 for
   minutes after the zone stopped publishing AAAA, because both the answer and
   the connection were already open.
+- Keep going one layer down. Fixing the path made the transcodes cheap, which is
+  what made the 12 Mbit/s policy cap visible in the first place.
 
 * Links
 
-- The change: https://github.com/bismigel/bakuran-infra/pull/69
+- The edge change: https://github.com/bismigel/bakuran-infra/pull/69
+- The bitrate cap removal: https://github.com/bismigel/bakuran-gitops/pull/151
 - Cloudflare IPv6 compatibility:
   https://developers.cloudflare.com/network/ipv6-compatibility/
 - Cloudflare zone settings API:
