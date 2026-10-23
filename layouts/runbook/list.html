@@ -1,9 +1,13 @@
 {{ define "main" }}
   {{ partial "runbook-style.html" . }}
   <article class="article">
-    <header class="article-header">
+    <header class="article-header" id="top">
       <h1>{{ .Title | emojify }}</h1>
     </header>
+
+    {{ if and (site.Params.enableTableOfContents | default true) (.Params.showTableOfContents | default true) }}
+    {{ partial "toc.html" . }}
+    {{ end }}
 
     {{ with .Content }}
     <div class="prose">{{ . | emojify }}</div>
