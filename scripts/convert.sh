@@ -121,6 +121,13 @@ done
       [ -n "$website" ] && echo "website: \"$(yaml_esc "$website")\""
       [ -n "$docs" ] && echo "docs: \"$(yaml_esc "$docs")\""
       [ -n "$tags" ] && echo "tags: [$tags]"
+      # The runbook is served only on runbook.bismigel.dev (behind Access);
+      # render it but keep it out of the public list and sitemap.
+      if [ "$slug" = "runbook" ]; then
+        echo "build:"
+        echo "  list: never"
+        echo "  render: always"
+      fi
       echo "---"
       echo
       cat "$md"
