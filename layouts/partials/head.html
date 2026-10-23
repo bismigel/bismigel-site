@@ -3,10 +3,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   {{- $title := cond .IsHome (site.Params.homeTitle | default site.Title) (printf "%s · %s" (.Title | emojify | plainify) site.Title) }}
   {{- $description := cond (ne .Description "") .Description (cond .IsPage (.Summary | plainify) site.Params.description) }}
+  {{/* Runbook pages are served on their own Access-gated host; let them set a
+       canonical that points there instead of the public baseURL. */}}
+  {{- $canonical := .Params.canonicalURL | default .Permalink }}
   <title>{{ $title }}</title>
   <meta name="title" content="{{ $title }}" />
   <meta name="description" content="{{ $description }}" />
-  <link rel="canonical" href="{{ .Permalink }}" />
+  <link rel="canonical" href="{{ $canonical }}" />
+  {{- if eq .Section "runbook" }}
+  <meta name="robots" content="noindex, nofollow" />
+  {{- end }}
   {{- range .AlternativeOutputFormats }}
   {{ printf `<link rel="%s" type="%s" href="%s" title="%s" />` .Rel .MediaType.Type .RelPermalink site.Title | safeHTML }}
   {{- end }}
@@ -31,7 +37,7 @@
 
   <meta property="og:site_name" content="{{ site.Title }}" />
   <meta property="og:type" content="{{ if and .IsPage (eq .Type "posts") }}article{{ else }}website{{ end }}" />
-  <meta property="og:url" content="{{ .Permalink }}" />
+  <meta property="og:url" content="{{ $canonical }}" />
   <meta property="og:title" content="{{ $title }}" />
   <meta property="og:description" content="{{ $description }}" />
   <meta property="og:image" content="{{ $ogImage }}" />

@@ -165,6 +165,8 @@ done
           echo "title: \"$(yaml_esc "$rtitle")\""
           echo "summary: \"$(yaml_esc "$rsummary")\""
           echo "sitemap: {disable: true}"
+          echo "outputs: [\"HTML\"]"
+          echo "canonicalURL: \"https://runbook.bismigel.dev/runbook/\""
           echo "---"
           echo
           cat "$md"
@@ -181,6 +183,7 @@ done
           echo "weight: $weight"
           [ -n "$rsummary" ] && echo "summary: \"$(yaml_esc "$rsummary")\""
           echo "sitemap: {disable: true}"
+          echo "canonicalURL: \"https://runbook.bismigel.dev/runbook/$slug/\""
           echo "---"
           echo
           cat "$md"
