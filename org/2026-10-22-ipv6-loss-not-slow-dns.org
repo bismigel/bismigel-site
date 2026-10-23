@@ -195,15 +195,22 @@ HEVC. This time the ffmpeg line said something else:
 #+end_src
 
 The stream was being tone-mapped from HDR to SDR and re-encoded at 11.6 Mbit/s,
-not because of the network this time, but because of a server default: the
+not because of the network this time but because of a server default: the
 Internet streaming bitrate limit of 12 Mbit/s. It applies to every client
 Jellyfin considers remote, and it caps direct play as well as transcoding. The
 client could ask for 40 Mbit/s and still get 11.6.
 
 That value is not a Kubernetes field. It lives in =config/system.xml= on the
-=jellyfin-config= PVC, which is why nobody sees it in the repo. It is now
-changed to =0= by a one-shot Job that calls the API and verifies the result:
+=jellyfin-config= PVC, which is why nobody sees it in the repo. It is removed by
+a one-shot Job that calls the API and verifies the result:
 https://github.com/bismigel/bakuran-gitops/pull/151
+
+After it ran, the same file started at 31.7 Mbit/s, still tone-mapping but with
+no downscale:
+
+#+begin_src text
+02:37:06  -b:v 31673882  procamp_vaapi, tonemap_vaapi ...
+#+end_src
 
 Two lessons from that: a transport fix can expose a policy limit underneath it,
 and a setting that lives on a PVC is invisible until it bites.
@@ -217,13 +224,17 @@ assumed:
 |-------+----------------+---------------|
 | node NIC | 1 Gbps each (=node_network_speed_bytes= 125000000) | ~940 Mbit/s per node, about 23 streams at 40 Mbit/s |
 | WAN upload | 3 Gbps | wider than the NIC, so never the binding constraint |
-| CPU for tone-mapped 4K | 0.58 cores per stream | ~6 concurrent before 4 cores saturate |
-| CPU for direct play | near zero (=codec:v copy=) | remux only, limit becomes disk and NIC |
+| CPU, 4K HDR tone-map at 31.7 Mbit/s | 0.80 cores per stream | ~4 concurrent before 4 cores saturate |
+| CPU, same at 11.6 Mbit/s downscaled | 0.58 cores per stream | the cheaper shape before the cap was removed |
+| CPU, direct play | near zero (=codec:v copy=) | remux only, limit becomes disk and NIC |
 
 The order matters. Direct play is cheap and the NIC decides. A 4K HDR title
 that needs tone-mapping is expensive and the CPU decides, long before any cable
-does. Four people watching the same HDR film costs 2.3 cores; the fifth starts
-queueing.
+does. Four people watching the same HDR film now costs 3.2 of the 4 cores, so
+the fifth one queues. At the old 11.6 Mbit/s target the same four cost 2.3.
+
+That is the real trade in raising the cap: better picture per stream, fewer
+streams before the box is full.
 
 * What I would do differently
 
@@ -239,6 +250,9 @@ queueing.
   the connection were already open.
 - Keep going one layer down. Fixing the path made the transcodes cheap, which is
   what made the 12 Mbit/s policy cap visible in the first place.
+- Measure again after raising a cap. The CPU per stream went from 0.58 to 0.80
+  cores when the same 4K file stopped being downscaled, and that changes how
+  many viewers fit.
 
 * Links
 
