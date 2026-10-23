@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="{{ site.Language.Locale }}">
+{{- partial "head.html" . }}
+<body class="docs-body">
+  {{- partial "runbook-style.html" . }}
+
+  <header class="docs-top">
+    <a class="docs-brand" href="{{ "/" | relLangURL }}">{{ partial "logo-text.html" . }}</a>
+    <span class="docs-slash" aria-hidden="true">/</span>
+    <a class="docs-space" href="{{ "/runbook/" | relLangURL }}">Runbook</a>
+    <span class="docs-spacer"></span>
+    <button type="button" id="theme-toggle" class="docs-theme" aria-label="Toggle color theme">
+      <span class="icon-sun">{{ partial "icon.html" "sun" }}</span>
+      <span class="icon-moon">{{ partial "icon.html" "moon" }}</span>
+    </button>
+  </header>
+
+  <div class="docs-wrap">
+    {{ partial "runbook-nav.html" . }}
+    <main class="docs-content">
+      {{ block "main" . }}{{ end }}
+    </main>
+  </div>
+
+  {{- $js := resources.Get "js/main.js" | js.Build (dict "targetPath" "js/main.js" "minify" (not hugo.IsDevelopment)) | resources.Fingerprint "sha256" }}
+  <script defer src="{{ $js.RelPermalink }}" integrity="{{ $js.Data.Integrity }}"></script>
+</body>
+</html>

@@ -1,5 +1,6 @@
 #+TITLE: Immich: signup, users, sessions
 #+SUMMARY: Keep signup off, create users deliberately, and watch the login alerts.
+#+GROUP: Operations
 
 Immich is **public** (no Cloudflare Access — the native apps cannot do the
 email-OTP), so its own login is the only gate. Keep signup **off**.

@@ -24,25 +24,11 @@
     </div>
     {{- end }}
 
-    {{ if eq .Section "runbook" }}
-    {{/* Docs-style sidebar: the runbook pages, only while inside the runbook. */}}
-    <style>.sidebar-links a.active { font-weight: 700; }</style>
-    <div class="sidebar-links">
-      <a href="{{ "/" | relLangURL }}">{{ partial "icon.html" "home" }}<span>Home</span></a>
-      <a href="{{ "/runbook/" | relLangURL }}"{{ if eq .RelPermalink (relURL "/runbook/") }} class="active"{{ end }}>{{ partial "icon.html" "book" }}<span>Runbook</span></a>
-    </div>
-    <div class="sidebar-links runbook-nav">
-      {{ range .CurrentSection.Pages.ByWeight }}
-      <a href="{{ .RelPermalink }}"{{ if eq .RelPermalink $.RelPermalink }} class="active" aria-current="page"{{ end }}><span>{{ .Title | emojify }}</span></a>
-      {{ end }}
-    </div>
-    {{ else }}
     <div class="sidebar-links">
       <a href="{{ "/" | relLangURL }}">{{ partial "icon.html" "home" }}<span>Home</span></a>
       <a href="{{ "/posts/" | relLangURL }}">{{ partial "icon.html" "book" }}<span>Writing</span></a>
       <a href="{{ "/projects/" | relLangURL }}">{{ partial "icon.html" "list" }}<span>Projects</span></a>
     </div>
-    {{ end }}
   </div>
 
   <div class="sidebar-bottom">

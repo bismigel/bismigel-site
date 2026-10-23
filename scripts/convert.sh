@@ -149,10 +149,10 @@ done
       [ -e "$f" ] || continue
       slug="$(basename "$f" .org)"
       meta() { grep -iE "^#\+$1:" "$f" | head -1 | sed -E "s/^#\+[^:]+:[[:space:]]*//I" || true; }
-      rtitle="$(meta title)"; rsummary="$(meta summary)"
+      rtitle="$(meta title)"; rsummary="$(meta summary)"; rgroup="$(meta group)"
 
       src="$(mktemp)"; md="$(mktemp)"
-      grep -viE '^#\+(title|summary):' "$f" > "$src"
+      grep -viE '^#\+(title|summary|group):' "$f" > "$src"
       "$PANDOC" -s -f org -t gfm --wrap=none "$src" -o "$md"
       rm -f "$src"
       sed -i "s/\\\\'/'/g" "$md"
@@ -182,6 +182,7 @@ done
           echo "title: \"$(yaml_esc "$rtitle")\""
           echo "weight: $weight"
           [ -n "$rsummary" ] && echo "summary: \"$(yaml_esc "$rsummary")\""
+          [ -n "$rgroup" ] && echo "group: \"$(yaml_esc "$rgroup")\""
           echo "sitemap: {disable: true}"
           echo "canonicalURL: \"https://runbook.bismigel.dev/runbook/$slug/\""
           echo "---"

@@ -1,5 +1,4 @@
 {{ define "main" }}
-  {{ partial "runbook-style.html" . }}
   <article class="article">
     <a class="more-link" href="{{ .CurrentSection.RelPermalink }}">&larr; Runbook</a>
 
@@ -10,8 +9,6 @@
     {{ if and (site.Params.enableTableOfContents | default true) (.Params.showTableOfContents | default true) }}
     {{ partial "toc.html" . }}
     {{ end }}
-
-    {{ partial "runbook-toc.html" . }}
 
     {{ with .Content }}
     <div class="prose">{{ . | emojify }}</div>

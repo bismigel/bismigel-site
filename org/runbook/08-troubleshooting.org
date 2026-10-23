@@ -1,5 +1,6 @@
 #+TITLE: When something is wrong
 #+SUMMARY: The symptoms table and where the long-form detail lives.
+#+GROUP: Recovery
 
 * First, localise
 

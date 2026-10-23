@@ -1,0 +1,19 @@
+{{- $section := .CurrentSection -}}
+{{- $current := .RelPermalink -}}
+{{- $pages := $section.Pages.ByWeight -}}
+{{- $groups := slice -}}
+{{- range $pages -}}
+  {{- $g := .Params.group | default "Pages" -}}
+  {{- if not (in $groups $g) -}}{{- $groups = $groups | append $g -}}{{- end -}}
+{{- end -}}
+<nav class="docs-nav" aria-label="Runbook pages">
+  <a class="docs-nav-home{{ if eq $current $section.RelPermalink }} active{{ end }}" href="{{ $section.RelPermalink }}">Overview</a>
+  {{- range $g := $groups }}
+  <div class="docs-nav-group">
+    <div class="docs-nav-label">{{ $g }}</div>
+    {{- range where $pages "Params.group" $g }}
+    <a href="{{ .RelPermalink }}"{{ if eq .RelPermalink $current }} class="active" aria-current="page"{{ end }}>{{ .Title | emojify }}</a>
+    {{- end }}
+  </div>
+  {{- end }}
+</nav>

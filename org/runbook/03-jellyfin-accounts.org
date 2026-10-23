@@ -1,5 +1,6 @@
 #+TITLE: Jellyfin accounts
 #+SUMMARY: Create, store and retire Jellyfin users — and the 12.x API quirks.
+#+GROUP: Operations
 
 * Preferred: the script
 
