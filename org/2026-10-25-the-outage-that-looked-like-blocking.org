@@ -171,7 +171,10 @@ sops-nix.service` override; that alone was enough to change the unit.
 
 **3. `::/0` should never have been in `allowedIPs`.** This peer does not route
 IPv6. Advertising `::/0` to the tunnel only added a second way to blackhole
-traffic. It is `0.0.0.0/0` only.
+traffic. It is `0.0.0.0/0` only. *(One exception, noted so nobody "tidies" it:
+the boot-seed block in the host file still lists `::/0` so its systemd unit stays
+byte-identical to the running generation; the reconciler enforces IPv4-only at
+runtime. Changing the seed is what restarts the tunnel and strands the node.)*
 
 The fix that finally worked was not a better command; it was making the command
 unnecessary:
