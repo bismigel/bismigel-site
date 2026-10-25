@@ -1,0 +1,193 @@
+#+TITLE: Media quality preferences: size caps, quality profiles and the disk rebalance that forced them
+#+DATE: 2026-10-24T21:30:00-04:00
+#+FILETAGS: homelab:media:mergerfs:recyclarr:opentofu:gitops
+#+DESCRIPTION: How a 68G Remux-2160p filled a mergerfs branch and broke book imports, why the pool looked healthy while a disk was at 99%, and how the fix became declarative: recyclarr for quality profiles, OpenTofu for size caps.
+
+The media pool reported 71% used. One disk inside it was at 99%. Nothing on a
+dashboard disagreed with anything else, until LazyLibrarian started writing book
+imports into its own config volume and calling it a success.
+
+The cause was not a full disk. It was a preference: the stack had no rule about
+what a movie is allowed to weigh, and Radarr ships with no limit for 2160p at
+all.
+
+This is the whole story: the disk, the rebalance, and the two declarative layers
+that now hold the policy.
+
+* The failure: 99% on one branch, 71% on the pool
+
+The pool is mergerfs over four branches:
+
+| Branch | Where | Size | Role |
+|--------|-------+------+------|
+| =media-sda= | local SATA | 234G | library, pinned |
+| =media-nvme= | local NVMe | 135G | library, pinned |
+| =remote82-sda= | NFS from the other node | 458G | mostly idle |
+| =remote82-nvme= | NFS from the other node | 340G | idle |
+
+mergerfs used =category.create=epmfs=: a new file goes to the branch that
+already holds its directory, and free space is only compared between branches
+that hold it. The library directories existed on =media-sda= only, so every
+import landed there. Both other local disks were empty.
+
+When =media-sda= dropped under mergerfs' 4G =minfreespace=, creates failed with
+=ENOSPC= even though the pool had 788G free. That is the trap: =df /mnt/media=
+shows the union and stays calm, while the one branch that accepts writes is
+full.
+
+The symptom was indirect. LazyLibrarian imported a book, could not write to
+=/books=, and fell back to its config volume:
+
+#+begin_src
+WARNING: eBook dir ['/books'] not writeable, using /config:
+[Errno 28] No space left on device: '/books/ll_temp'
+#+end_src
+
+The book was in the database. The file was in the wrong place. The UI said the
+download worked.
+
+* Rebalancing without losing anything
+
+The first fix is movement, not deletion. mergerfs merges reads, so a folder can
+move to another branch and keep serving from the same path.
+
+The numbers from that day:
+
+| Moved | Size | From | To |
+|-------+------+------+----|
+| =9-1-1= | 46G | media-sda | remote82-sda |
+| =INVINCIBLE (2021)= | 23G | media-sda | remote82-sda |
+| =The Sopranos= | 19G | media-sda | remote82-sda |
+| =Marty Supreme (2025)= | 69G | media-nvme | remote82-sda |
+
+Result:
+
+| Branch | Before | After |
+|--------|--------+-------|
+| media-sda | 84% (36G free) | 46% (122G free) |
+| media-nvme | 91% (12G free) | 38% (80G free) |
+| remote82-sda | 4% | 40% |
+
+Total pool content did not change: 318G before and after.
+
+Three rules keep this safe:
+
+1. Never delete before the copy is verified. Compare the file list and the size
+   of every file, then delete the source.
+2. Use a tab separator when reading that list. Show names contain spaces, and
+   =read -r path size= silently splits =Season 4= into two fields.
+3. Expect a new file in the destination. Sonarr imported an episode during one
+   copy. That is fine, the check only verifies the source list.
+
+A trap I walked into: I first tried to move a 69G movie onto =media-sda=. That
+was the wrong direction, it filled the disk I was trying to protect. I stopped
+it, removed the partial copy and sent it to =remote82-sda= instead.
+
+* The real cause: no preference at all
+
+Moving data bought weeks. It did not explain how a single film reached 68G.
+
+Radarr's stock quality definitions have =maxSize: null= for every 2160p class.
+No limit means a =Remux-2160p= is an acceptable release. One of them was 21% of
+the entire library.
+
+The resolution was not the problem. The bitrate was. Two constraints decide what
+is worth storing here:
+
+- remote streaming is capped at 12 Mbps, so anything above about 5.4 GB per hour
+  cannot be delivered off the LAN at all;
+- a 2160p WEB-DL measures 125-310 MB/min, and a 2160p remux measures 450-750.
+
+So 4K is fine as WEB-DL. The remux class has no consumer in this house.
+
+* Layer one: recyclarr owns quality profiles
+
+Profiles decide which qualities may be downloaded. recyclarr reconciles them
+from a file in the GitOps repo, nightly.
+
+Three profiles, all upgrade-enabled:
+
+| Profile | Allowed | Cutoff |
+|---------|---------+--------|
+| =TV-1080p= | WEBDL / WEBRip / Bluray / HDTV 1080p | WEBDL-1080p |
+| =Movies-1080p= | same four | WEBDL-1080p |
+| =Movies-2160p= (opt-in per movie) | WEBDL / WEBRip 2160p | WEBDL-2160p |
+
+No profile allows =Remux= or =Bluray-2160p=. 4K stays possible, but only in its
+sane form and only when assigned to a specific movie.
+
+AVI is not a target. It is a 1992 container, usually with Xvid video: no modern
+subtitles, no reliable seeking index, and Jellyfin cannot direct-play it, so
+every playback transcodes for nothing. The library is already 100% MKV and it
+should stay that way. 1080p HEVC in MKV is the default; H.264 only when a client
+forces it.
+
+Three things went wrong on the way:
+
+1. =--dry-run= does not exist in the pinned image. The nightly job failed on
+   every schedule until the log said =Unknown option 'dry-run'= and it became
+   =--preview=.
+2. The config I wrote was version 8 shaped. =recyclarr config create= pulls
+   templates from the templates repository's master branch, which is already v8,
+   while the image is 7.4.0. It answered =Property 'trash_id' not found=.
+3. TRaSH presets are not a shortcut for size limits. Their =quality_definition=
+   now sets =Max = 1000 (Unlimited)= for every quality. Applying it would have
+   removed the useful 1080p cap and kept 2160p unlimited, which is the accident
+   itself.
+
+* Layer two: OpenTofu owns the size caps
+
+recyclarr cannot express numbers, so sizes do not belong to it. OpenTofu has
+providers for both apps, and =quality_definition= is a resource.
+
+Caps in MB per minute:
+
+| Class | Cap | Roughly |
+|-------+-----+---------|
+| 720p | 22 | 1.3 GB/h (stock) |
+| 1080p | 35 | 2.1 GB/h |
+| Remux-1080p / Bluray-1080p Remux | 60 | 3.6 GB/h |
+| 2160p | 250 | 15 GB/h |
+| Remux-2160p / Bluray-2160p Remux | 400 | 24 GB/h |
+
+Those numbers come from measurement, not from taste: a 60-minute 1080p episode
+is about 30 MB/min, the 34G 2160p WEB-DL replacement is about 309, and the 68G
+remux is about 620.
+
+My first draft said 20/55 MB/min. That was wrong. 55 would have rejected every
+real 4K WEB-DL, so the cap would have looked strict while quietly breaking 4K.
+The mistake is in the runbook now, with a note not to repeat it.
+
+The rest of that layer is small but earns its place: root folders imported (not
+created, that would duplicate them) and a Telegram notification per app,
+failure signals only. Health issues, restores, app updates and manual
+interaction. Grab and import events stay off, because a TV library would
+otherwise send a message per episode.
+
+* What the ownership split looks like
+
+| Owner | Objects |
+|-------|---------|
+| ArgoCD | deployment, PVC, service, ingress, image pin, network policy |
+| recyclarr | quality profiles, custom format scores |
+| OpenTofu | quality definition sizes, root folders, notifications |
+| nothing | history, seeds, cookies (those live in the R2 backups) |
+
+One object, one owner. This matters because two reconcilers touching the same
+object produce a loop: recyclarr would write a profile, Tofu would see drift and
+revert it, and both would be right.
+
+Download clients and Prowlarr indexers are still imperative, in the setup
+script. Moving them needs a full config translation per object and duplicates
+are dangerous there, so they stay for a later slice.
+
+* What it bought
+
+- the 68G remux class cannot return through any profile;
+- 2160p has a size limit for the first time;
+- all three branches sit between 38% and 46%, with 122G free on the busiest one;
+- a chapter of configuration that lived only in a SQLite file is now reviewable
+  in a pull request.
+
+What I would do differently: set the caps before the rebalance. Moving 157G by
+hand was a symptom. The preference was the disease.
