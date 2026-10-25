@@ -1,10 +1,17 @@
 #+TITLE: Avoiding the media-node outage (network changes on a headless box)
-#+SUMMARY: The pre-flight checks, the one operation that must never be run blind, and the watchdog that turns a bad activation into a one-minute blip.
+#+SUMMARY: The pre-flight checks, the one operation that must never be run blind, and the reconciler that repairs the tunnel without restarting it.
 #+GROUP: Recovery
 
-The media node has been taken off the network twice in one night, both times by a
-change to the same thing: the WireGuard interface. Both times it needed a
-physical power-cycle. This page is the procedure that prevents the third.
+The media node was taken off the network **seven times** in one night (2026-10-25),
+every time by a change to the same thing: the `wg-quick-proton0` systemd unit.
+Each change made `switch-to-configuration` restart it, and a restart deletes and
+recreates the interface. Each time it needed a physical power-cycle.
+
+*Correction (2026-10-25).* This page originally blamed a "rollback to a dead
+Proton endpoint" and proposed a watchdog. Both were wrong: the endpoint was
+alive (the fault was a stale key), and the watchdog was replaced by a
+timer-driven reconciler that never restarts the interface. See runbook 14 and
+`NETWORK.md` §7 for the current rules.
 
 * The shape of the failure
 
@@ -18,7 +25,7 @@ Two specifics made it worse:
 1. The failure happened *after* =ip link delete dev proton0=, so the node lost its
    route mid-activation, not at the start.
 2. =deploy-rs= rolled back to the previous generation — which contained the **old,
-   dead** Proton endpoint. For network config, rollback is not recovery; it can
+   endpoint and peer**. For network config, rollback is not recovery; it can
    restore a broken state.
 
 * Rule 1: never touch it without hands on the box
@@ -36,7 +43,7 @@ If you are remote, use the in-place swap instead — it never removes the link:
 
 #+begin_src sh
 wg set proton0 private-key /tmp/new-key
-wg set proton0 peer <server-pubkey> endpoint <ip>:51820 allowed-ips 0.0.0.0/0,::/0 persistent-keepalive 25
+wg set proton0 peer <server-pubkey> endpoint <ip>:51820 allowed-ips 0.0.0.0/0 persistent-keepalive 25
 ip route replace <ip>/32 via 192.168.2.1 dev eno1 table main
 #+end_src
 
@@ -78,7 +85,15 @@ Before changing anything, answer these three questions on paper:
 The last one is the subtle one: tag the working generation before you change
 network config, so "roll back" means "go back to something that had egress".
 
-* Rule 4: the watchdog (what actually ends this class of outage)
+* Rule 4: the reconciler (what actually ends this class of outage)
+
+*Superseded 2026-10-25.* This section described a `wireguard-watchdog` unit. It
+was replaced by `wireguard-reconcile` (`modules/wireguard-reconcile.nix`), which
+runs on a timer (`OnBootSec 90s`, `OnUnitActiveSec 60s`), is deliberately **not**
+part of any activation transaction, never restarts the interface, and also
+enforces the key fingerprint, the peer set and the endpoint pin. The watchdog's
+fatal flaw was being ordered into the activation: a failing unit in the
+transaction makes deploy-rs roll back, and the rollback restarts `wg-quick`.
 
 A `systemd` unit ordered after `wg-quick-proton0`, running ~60 s after it
 finishes, which checks for a recent handshake and repairs the tunnel if it is
@@ -100,7 +115,7 @@ systemd.services.wireguard-watchdog = {
       ip route replace <endpoint-ip>/32 via 192.168.2.1 dev eno1 table main
       wg set proton0 private-key ${config.sops.secrets."wg_proton_private_key".path}
       wg set proton0 peer <server-pubkey> endpoint <ip>:51820 \
-        allowed-ips 0.0.0.0/0,::/0 persistent-keepalive 25
+        allowed-ips 0.0.0.0/0 persistent-keepalive 25
       logger -t wg-watchdog "tunnel had no handshake; peer and endpoint pin re-applied"
     fi
   '';
