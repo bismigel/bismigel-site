@@ -142,6 +142,7 @@ Procedure, only with physical access:
 
 - Do not =systemctl restart wg-quick-proton0= on a node you cannot reach.
 - Do not rotate the endpoint to "fix" egress; the endpoint was never the problem.
-- Do not re-add =::/0= to =allowedIPs=.
+- Do not re-add =::/0= to =allowedIPs= (the boot seed in the host file keeps it
+  only so its unit stays byte-identical; the reconciler enforces IPv4-only).
 - Do not report "no data path" from a check that demands exactly HTTP 200.
 - Do not trust a handshake as proof of a working tunnel.
