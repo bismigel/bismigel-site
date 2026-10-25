@@ -39,6 +39,23 @@ Cloudflare). A perfect definition still fails. This is exactly what happened to
 =EBookBay= on 2026-10-24: it added cleanly, then every search answered
 =Search failed due to all selected indexers being unavailable=.
 
+*Correction (same day):* that "unavailable" was **our own egress**, not the site.
+=example.com= and =api.telegram.org= were also failing at the same moment because
+the ProtonVPN tunnel on the media node was down (stale WireGuard handshake). So
+before blaming a site, prove *any* external TCP works:
+
+#+begin_src sh
+for h in example.com api.telegram.org; do printf '%-20s ' "$h"; \
+  curl -sS -o /dev/null --connect-timeout 6 -w 'code=%{http_code} conn=%{time_connect}s\n' "https://$h/"; done
+wg show proton0 | grep -E 'handshake|transfer'
+#+end_src
+
+=conn=0.000000s= on every target means the tunnel, not the indexer. And note what
+restarting that interface can do: on 2026-10-24 =systemctl restart
+wg-quick-proton0= on the media node left the machine **unreachable** (ARP answers,
+nothing else) and it needed a physical power-cycle. Never restart =wg-quick= on a
+host you cannot reach out-of-band.
+
 * Check the definitions updater
 
 Prowlarr is supposed to refresh definitions at runtime. Watch for this in its log:
