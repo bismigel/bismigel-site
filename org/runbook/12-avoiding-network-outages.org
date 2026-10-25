@@ -1,0 +1,134 @@
+#+TITLE: Avoiding the media-node outage (network changes on a headless box)
+#+SUMMARY: The pre-flight checks, the one operation that must never be run blind, and the watchdog that turns a bad activation into a one-minute blip.
+#+GROUP: Recovery
+
+The media node has been taken off the network twice in one night, both times by a
+change to the same thing: the WireGuard interface. Both times it needed a
+physical power-cycle. This page is the procedure that prevents the third.
+
+* The shape of the failure
+
+=wg-quick= tears the interface down and rebuilds it on every activation. While it
+is down, the host has **no route to the internet**. If the rebuild fails, nothing
+brings it back — and because every workload on that node needs egress (indexer
+searches, Usenet, image pulls), the whole media stack is down with it.
+
+Two specifics made it worse:
+
+1. The failure happened *after* =ip link delete dev proton0=, so the node lost its
+   route mid-activation, not at the start.
+2. =deploy-rs= rolled back to the previous generation — which contained the **old,
+   dead** Proton endpoint. For network config, rollback is not recovery; it can
+   restore a broken state.
+
+* Rule 1: never touch it without hands on the box
+
+Do not run any of these on the media node unless you are next to it (or have
+IPMI/PiKVM):
+
+#+begin_src sh
+systemctl restart wg-quick-proton0      # deletes and recreates the interface
+nix run github:serokell/deploy-rs -- .#calamansi-intel   # activates the same unit
+systemctl isolate <other target>
+#+end_src
+
+If you are remote, use the in-place swap instead — it never removes the link:
+
+#+begin_src sh
+wg set proton0 private-key /tmp/new-key
+wg set proton0 peer <server-pubkey> endpoint <ip>:51820 allowed-ips 0.0.0.0/0,::/0 persistent-keepalive 25
+ip route replace <ip>/32 via 192.168.2.1 dev eno1 table main
+#+end_src
+
+That sequence is proven: handshake inside ten seconds, no downtime.
+
+* Rule 2: prove the change before activating it
+
+#+begin_src sh
+cd bakuran-infra
+nix run github:serokell/deploy-rs -- .#calamansi-intel --dry-activate
+#+end_src
+
+`--dry-activate` shows what systemd *would* do without switching. Look for
+=will restart wg-quick-proton0=. If it is there, you are about to make a network
+change, so treat it as one: be on-site, and know your recovery path.
+
+Also check that the hook actually works. The outage was caused by a Nix string
+whose escaping collapsed into =status=127= (command not found):
+
+#+begin_src sh
+# the literal command the unit will run, outside Nix quoting
+ip route replace <endpoint-ip>/32 via 192.168.2.1 dev eno1 table main
+ip route get <endpoint-ip>     # MUST show: via 192.168.2.1 dev eno1
+#+end_src
+
+If =ip route get <endpoint-ip>= answers =dev proton0=, the handshake can never
+leave: that is the bootstrap deadlock. Fix the pin before anything else.
+
+* Rule 3: keep a recovery path that is not the network
+
+Before changing anything, answer these three questions on paper:
+
+| Question | Why |
+|---|---|
+| Can I power-cycle this box in the next 10 minutes? | both outages ended this way |
+| Is `.82` up? | it NFS-serves two media-pool branches; `.81` cannot mount the pool without it |
+| Do I know the *last known good* network generation? | a rollback can restore a dead endpoint |
+
+The last one is the subtle one: tag the working generation before you change
+network config, so "roll back" means "go back to something that had egress".
+
+* Rule 4: the watchdog (what actually ends this class of outage)
+
+A `systemd` unit ordered after `wg-quick-proton0`, running ~60 s after it
+finishes, which checks for a recent handshake and repairs the tunnel if it is
+absent:
+
+#+begin_src nix
+systemd.services.wireguard-watchdog = {
+  description = "Repair the WireGuard tunnel if it came up dead";
+  after = [ "wg-quick-proton0.service" ];
+  wants = [ "wg-quick-proton0.service" ];
+  wantedBy = [ "multi-user.target" ];
+  path = with pkgs; [ wireguard-tools iproute2 gawk coreutils ];
+  serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
+  script = ''
+    sleep 60
+    hs=$(wg show proton0 latest-handshakes | awk '{print $2}' | sort -n | tail -1)
+    now=$(date +%s)
+    if [ "$((now - ''${hs:-0}))" -gt 180 ]; then
+      ip route replace <endpoint-ip>/32 via 192.168.2.1 dev eno1 table main
+      wg set proton0 private-key ${config.sops.secrets."wg_proton_private_key".path}
+      wg set proton0 peer <server-pubkey> endpoint <ip>:51820 \
+        allowed-ips 0.0.0.0/0,::/0 persistent-keepalive 25
+      logger -t wg-watchdog "tunnel had no handshake; peer and endpoint pin re-applied"
+    fi
+  '';
+};
+#+end_src
+
+Do not just restart the interface — that is the operation that fails. Re-apply
+the peer and the route pin, which is the part known to work.
+
+The second half of the fix is moving this interface from =wg-quick= to
+=networking.wireguard=, which does not delete the link on config change at all.
+
+* Rule 5: monitor the dependency, not just the app
+
+After this, the tunnel is watched: `WireGuardNoHandshake` (critical, handshake
+older than 5 minutes), `WireGuardHandshakeStale` (3 minutes), and
+`WireGuardMetricsMissing` (so a broken exporter cannot look like a healthy
+tunnel). Metrics come from a 30 s textfile exporter on the node.
+
+When the tunnel is down, applications do **not** say "no egress". They say
+"indexer unavailable", "no results", "image pull failed". That ambiguity is what
+turned a 30-second fix into an hour of blaming indexers.
+
+* Quick version
+
+1. On-site or IPMI before any =wg-quick= / =deploy-rs= run. Otherwise: `wg set`
+   in place.
+2. `--dry-activate` first, and look for =wg-quick-proton0=.
+3. Verify `ip route get <endpoint>` goes out `eno1`, never `proton0`.
+4. Know the last good generation; tag it before network changes.
+5. Watchdog + the three alerts, so a dead tunnel fixes itself or shouts.
