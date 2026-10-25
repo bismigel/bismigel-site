@@ -1,0 +1,169 @@
+#+TITLE: Media preferences: profiles, size caps and a full branch
+#+SUMMARY: Change what the media stack is allowed to download, and what to do when a mergerfs branch fills while the pool still looks healthy.
+#+GROUP: Media
+
+Three layers hold the policy. Change the layer that owns the thing you want to
+change, never two at once.
+
+| You want to change | Owner | Where |
+|--------------------+-------+-------|
+| which qualities may be downloaded | recyclarr | =bakuran-gitops/manifests/media/recyclarr.yaml= |
+| how large a quality may be (MB/min) | OpenTofu | =bakuran-infra/opentofu/media/quality_definitions.tf= |
+| root folders, notifications | OpenTofu | same module |
+| deployment, PVC, ingress, network policy | ArgoCD | =bakuran-gitops/manifests/media/= |
+
+* Change a quality profile (recyclarr)
+
+The CronJob runs nightly at 04:17. It creates and updates profiles only. It does
+not delete media and it does not reassign items.
+
+Preview before applying. The CronJob's own args are =sync --debug=, so build a
+one-off Job from it with the args replaced:
+
+#+begin_src sh
+kubectl -n media create job --from=cronjob/recyclarr rr-check-$(date +%s) \
+  --dry-run=client -o yaml \
+  | yq '.spec.template.spec.containers[0].args = ["sync", "--preview", "--debug"]' \
+  | kubectl apply -f -
+kubectl -n media logs job/rr-check-<epoch> -c recyclarr | tail -40
+#+end_src
+
+The preview prints a quality tree with a tick or cross per quality. Check that
+the qualities you expect to be allowed are ticked and that =Score Updates: No
+score changes= is what you see =reset_unmatched_scores= is false on purpose.
+
+** Sharp edges
+
+- =--dry-run= does not exist. It is =--preview=. =--log-level= does not exist
+  either, it is =--debug=. A wrong flag means the nightly job fails and nothing
+  is reconciled.
+- The image is pinned at *7.4.0* (version 7 schema). =recyclarr config create=
+  downloads templates from the templates repository's *master*, which is already
+  version 8, so its output is rejected with =Property 'trash_id' not found=.
+  Write profiles out by name and qualities instead of copying a template.
+- *Do not add =quality_definition= to the recyclarr file.* The TRaSH presets
+  are =Max = 1000 (Unlimited)= for every quality. Applying them removes the
+  useful 1080p cap and keeps 2160p unlimited, which is the accident this policy
+  exists to prevent. Sizes belong to OpenTofu.
+- =reset_unmatched_scores= must be an object (=enabled: false=). A bare boolean
+  is rejected.
+
+* Change a size cap (OpenTofu)
+
+The *arr hostPorts are not reachable from the admin workstation, so run the
+apply over a port-forward.
+
+#+begin_src sh
+kubectl -n media port-forward svc/radarr 17878:7878 &
+kubectl -n media port-forward svc/sonarr 18989:8989 &
+
+export TF_VAR_radarr_api_key="<from BWS radarr-api-key>"
+export TF_VAR_sonarr_api_key="<from BWS sonarr-api-key>"
+export TF_VAR_radarr_url=http://127.0.0.1:17878
+export TF_VAR_sonarr_url=http://127.0.0.1:18989
+export AWS_ACCESS_KEY_ID="<BWS r2-access-key-id>"          # state lives in R2
+export AWS_SECRET_ACCESS_KEY="<BWS r2-secret-access-key>"
+
+cd bakuran-infra/opentofu/media
+tofu plan     # expect only the sizes you meant to change, and 0 to destroy
+tofu apply
+#+end_src
+
+** Acceptance test
+
+=tofu plan= again afterwards. It must say =No changes=. If it does not, the
+declaration does not match reality and you have written decoration instead of
+control.
+
+** Sharp edges
+
+- The unit is *MB per minute*, not MB per file. A 2h film at 250 MB/min is
+  about 30G. Measured anchors: a 60-min 1080p episode ≈ 30 MB/min, a 2160p
+  WEB-DL ≈ 125-310, a 2160p remux ≈ 450-750.
+- Do not go back to a 55 MB/min cap for 2160p. It rejects every real 4K WEB-DL.
+- Radarr calls the 1080p remux class =Remux-1080p=, Sonarr calls it
+  =Bluray-1080p Remux=. Radarr also requires =on_movie_delete= on a
+  notification, Sonarr does not. =tofu validate= is how you find such
+  requirements.
+- Ids are resolved by title from the =*_quality_definitions= data source, so an
+  *arr upgrade that renumbers ids does not break the module.
+
+* Test a notification
+
+Both apps have one Telegram notification, failure signals only. To prove it
+works, POST the *full object*:
+
+#+begin_src sh
+kubectl -n media port-forward svc/radarr 17878:7878 &
+curl -s -H "X-Api-Key: <radarr key>" http://127.0.0.1:17878/api/v3/notification/1 \
+  | curl -s -o /dev/null -w '%{http_code}\n' -X POST -H "X-Api-Key: <radarr key>" \
+      -H 'Content-Type: application/json' --data @- \
+      http://127.0.0.1:17878/api/v3/notification/test
+#+end_src
+
+=POST /notification/test/<id>= returns *405*, and a body of just
+={"id":1}= fails validation with ='Name' must not be empty=. A 200 means the
+message was sent.
+
+* A branch is full but the pool looks fine
+
+This is the trap worth memorising. mergerfs runs =category.create=epmfs=: a new
+file goes to the branch that already holds its directory, and free space is only
+compared between branches that hold it. Each branch also enforces
+=minfreespace= (4G). So a branch can refuse writes with =ENOSPC= while
+=df /mnt/media= reports hundreds of gigabytes free.
+
+** Detect
+
+#+begin_src sh
+for b in /mnt/media-sda /mnt/media-nvme /mnt/remote82-sda; do
+  printf '%-20s ' "$b"; df -h "$b" | tail -1 | awk '{print $4" free ("$5" used)"}'
+done
+du -sh /mnt/media-sda/tv/* | sort -h | tail -5
+#+end_src
+
+Alerts exist per branch: =MediaBranchFillingUp= at 85%, =MediaBranchCritical= at
+93%. The pool-level alerts stay, but they are the wrong fault domain on their
+own.
+
+** Rebalance
+
+mergerfs merges reads, so a folder can move to another branch and keep serving
+from the same path. Copy, verify, then delete.
+
+#+begin_src sh
+S=/mnt/media-sda/tv/<show>; D=/mnt/remote82-sda/tv/<show>
+mkdir -p "$(dirname "$D")"
+cp -a "$S" "$(dirname "$D")/"
+
+bad=0
+while IFS=$'\t' read -r p s; do
+  [ -f "$D/$p" ] && [ "$(stat -c%s "$D/$p")" = "$s" ] || { echo "MISMATCH $p"; bad=1; }
+done < <(cd "$S" && find . -type f -printf '%p\t%s\n')
+[ $bad -eq 0 ] && rm -rf "$S" && echo moved
+#+end_src
+
+** Sharp edges
+
+- Verify before deleting, always. The script above deletes only when every file
+  matched by name and size.
+- Tab separator, not =read -r path size=. Show names contain spaces and the
+  naive version splits =Season 4= into two fields.
+- A new file can appear in the destination during the copy, because Sonarr keeps
+  importing. That is fine, the check only verifies the source's file list.
+- Moving a folder *onto* the full branch makes it worse. Write down source and
+  destination before you start.
+- NFS branches (=remote82-*=) are roughly ten times slower than local ones.
+
+** Sizing reference
+
+| Branch | Disk | Typical role |
+|--------+------+--------------|
+| =media-sda= | 234G local | library, pinned by =media-dirs= |
+| =media-nvme= | 135G local | library, pinned |
+| =remote82-sda= | 458G over NFS | cold media, room for rebalance |
+| =remote82-nvme= | 340G over NFS | spare |
+
+Only branches that carry the library directories can receive writes. If one
+branch keeps filling, the answer is either a rebalance or a preference change,
+not a bigger =df= number.

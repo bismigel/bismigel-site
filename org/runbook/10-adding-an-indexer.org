@@ -1,0 +1,131 @@
+#+TITLE: Adding an indexer to Prowlarr
+#+SUMMARY: The procedure, the two checks that decide whether it is even possible from this network, and the traps that make a broken indexer look like an empty indexer.
+#+GROUP: Media
+
+Prowlarr is a definition-driven frontend. An indexer is not a URL you type in:
+it needs a *Cardigann definition* (a YAML file describing how to search that
+site and how to parse its results). No definition, no indexer. That single fact
+decides most of this page.
+
+* Before you add anything: two checks
+
+** 1. Does a definition exist?
+
+#+begin_src sh
+POD=$(kubectl -n media get pod -l app=prowlarr -o jsonpath='{.items[0].metadata.name}')
+
+# what is on disk right now
+kubectl -n media exec "$POD" -- sh -c 'ls /config/Definitions | grep -i <name>'
+
+# what the running build can offer
+kubectl -n media exec "$POD" -- sh -c \
+  'wget -qO- --header="X-Api-Key: $PROWLARR_API_KEY" \
+     http://127.0.0.1:9696/api/v1/indexer/schema' \
+  | jq -r '.[] | "\(.name) | \(.protocol) | \(.privacy)"' | grep -i <name>
+#+end_src
+
+If nothing matches, the definition is not in the build. Options are: wait for
+upstream, or write a custom definition into =/config/Definitions/Custom/=
+(hand-maintained against that site's HTML — expect it to break).
+
+** 2. Can we reach the site at all?
+
+#+begin_src sh
+for h in <site.tld>; do printf '%-24s ' "$h"; curl -s -o /dev/null -w '%{http_code}\n' --max-time 12 "https://$h/"; done
+#+end_src
+
+=000= from the media node means the site blocks this network (datacenter IP or
+Cloudflare). A perfect definition still fails. This is exactly what happened to
+=EBookBay= on 2026-10-24: it added cleanly, then every search answered
+=Search failed due to all selected indexers being unavailable=.
+
+* Check the definitions updater
+
+Prowlarr is supposed to refresh definitions at runtime. Watch for this in its log:
+
+#+begin_src sh
+kubectl -n media logs deploy/prowlarr --tail=2000 | grep -i "Error while getting indexer definitions"
+#+end_src
+
+On 2026-10-24 this fires on every attempt, so the instance is pinned to whatever
+was baked into the image (~586 definitions). Nothing upstream will ever appear
+until that egress is fixed. Fix it before concluding a definition "does not
+exist".
+
+* Add it through the API (what the UI does)
+
+#+begin_src sh
+POD=$(kubectl -n media get pod -l app=prowlarr -o jsonpath='{.items[0].metadata.name}')
+kubectl -n media exec "$POD" -- python3 - <<'PY'
+import json, os, urllib.request as u
+k = os.environ["PROWLARR_API_KEY"]
+B = "http://127.0.0.1:9696/api/v1"
+def req(m, p, d=None):
+    r = u.Request(B + p, method=m, data=json.dumps(d).encode() if d else None,
+                  headers={"X-Api-Key": k, "Content-Type": "application/json"})
+    return json.loads(u.urlopen(r, timeout=180).read())
+
+d = [x for x in req("GET", "/indexer/schema") if x["name"] == "EBookBay"][0]
+body = {
+    "name": "EBookBay", "implementation": d["implementation"],
+    "implementationName": d["implementationName"],
+    "configContract": d["configContract"], "protocol": d["protocol"],
+    "enableRss": True, "enableAutomaticSearch": True,
+    "enableInteractiveSearch": True, "appProfileId": 1, "priority": 30,
+    "tags": [], "fields": [{"name": f["name"], "value": f["value"]}
+                           for f in d["fields"] if f.get("value") not in (None, "")],
+}
+print(req("POST", "/indexer", body)["id"])
+PY
+#+end_src
+
+Most fields come from the definition; anything the site needs (API key, cookie,
+username) has to be filled in the =fields= list.
+
+* Then make the consumers see it
+
+- *Sonarr/Radarr* get it automatically: Prowlarr pushes indexers to the apps
+  configured under *Settings → Apps*. No per-app edit needed.
+- *LazyLibrarian* does not. It uses Prowlarr's Newznab front-end
+  (=http://prowlarr.media.svc.cluster.local:9696/2=, categories =7000,7020=), so
+  a new *Usenet* indexer is picked up by that same URL. A *torrent* indexer is
+  not: LL needs its own torrent client configured (currently only SABnzbd, which
+  speaks Usenet).
+- *NetworkPolicy*: the consumer must be allowed to reach Prowlarr. =books= and
+  =downloads= already have a narrow hole to =media/app=prowlarr:9696=.
+
+* Verify, in this order
+
+#+begin_src sh
+# 1. the indexer object exists and is enabled
+kubectl -n media exec "$POD" -- sh -c 'wget -qO- --header="X-Api-Key: $PROWLARR_API_KEY" \
+  http://127.0.0.1:9696/api/v1/indexer' | jq -r '.[] | "\(.id) \(.name) \(.protocol)"'
+
+# 2. a real search returns hits (this is the only meaningful test)
+kubectl -n media exec "$POD" -- sh -c 'wget -qO- --header="X-Api-Key: $PROWLARR_API_KEY" \
+  "http://127.0.0.1:9696/api/v1/search?query=<known+title>&type=search&indexerIds=<id>&limit=5"' \
+  | jq -r '.[] | "\(.title[:60])"'
+
+# 3. end to end: the consumer can grab from it (LL -> SAB, or *arr -> client)
+#+end_src
+
+A search that errors with =all selected indexers being unavailable= means the
+site refused us, not that the title is missing. Those two look identical from the
+outside and are worth separating every time.
+
+* What is known not to work from here
+
+| Indexer | Verdict |
+|---------+---------|
+| AudioBookBay | *no definition* — absent from the 586 on disk *and* 404 in the upstream repo |
+| EBookBay | definition exists, but every search: =all selected indexers unavailable= (blocks our egress) |
+| AudioNews / ProAudioTorrents | private, need an account |
+
+For audiobooks the practical route is a private tracker account
+(MyAnonamouse, BookTracker): one indexer, no Cloudflare fight, covers audiobooks
+and ebooks. Public trackers behind Cloudflare need a FlareSolverr proxy in front,
+which is one more service and one more failure mode.
+
+For ebooks specifically, no indexer is needed at all — use
+=bakuran-infra/scripts/books-fetch.sh=, which downloads straight into the library
+and lets the nightly Kavita scan import it.
