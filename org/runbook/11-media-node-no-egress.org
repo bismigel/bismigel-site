@@ -10,6 +10,14 @@ different, and all of them look like an application bug.
 
 On 2026-10-25 it cost an hour and a wrong conclusion ("the indexers block us").
 
+*Correction (2026-10-25, same day).* Two claims below were wrong and are marked
+where they appear: the Proton endpoint was **not** rotated or dead, and the real
+fault was a **stale private key** (a handshake succeeds with the wrong key and
+blackholes the data). There were also **seven** outages, not one, and the trigger
+was any change to the `wg-quick-proton0` systemd unit, which restarts it. See
+runbook 14 for the current procedure and `NETWORK.md` in the homelab repo for the
+authoritative network facts.
+
 * First: is it us or them
 
 Three commands, in this order.
@@ -31,7 +39,7 @@ Reading the results:
 
 | Result | Meaning |
 |---|---|
-| handshake minutes/hours old, `0 B received`, packets sent | the endpoint is gone — Proton rotated the server, or the key was revoked |
+| handshake minutes/hours old, `0 B received`, packets sent | endpoint unreachable, **or a stale/replaced private key** (the likelier cause here — this was never a rotated endpoint) |
 | `code=000 conn=0.000000s` on *every* target | our egress, not the site. Stop blaming the site |
 | handshake fresh but one site fails | now it is the site (or its Cloudflare) |
 
@@ -58,7 +66,11 @@ postSetup = [
 The `/32` survives the `suppress_prefixlength 0` rule that deliberately hides the
 default route from tunnel-destined lookups.
 
-* Fault 2: the endpoint itself is dead
+* Fault 2: the key on the interface is not the key in SOPS
+
+(The original version of this page said "the endpoint itself is dead". Verified
+2026-10-25: the old endpoint answered fine. The fault was a stale private key
+left in `/run/secrets` by a rolled-back activation.)
 
 Proton rotates server IPs, and a revoked config (same device slot re-downloaded)
 also stops answering. Fix: download a *fresh* WireGuard config, pick a *P2P*
@@ -91,7 +103,7 @@ cat /tmp/pk | ssh root@media 'umask 077; cat > /tmp/pk'
 ssh root@media "
   ip route replace ${EP%:*}/32 via 192.168.2.1 dev eno1 table main
   wg set proton0 private-key /tmp/pk
-  wg set proton0 peer $PUB endpoint $EP allowed-ips 0.0.0.0/0,::/0 persistent-keepalive 25
+  wg set proton0 peer $PUB endpoint $EP allowed-ips 0.0.0.0/0 persistent-keepalive 25
   rm -f /tmp/pk
 "
 rm -f /tmp/pk

@@ -49,6 +49,9 @@ exists. Full bootstrap deadlock — and it looks exactly like an idle tunnel.
 Proton had rotated the server, so the old IP was dead anyway. Two faults, one
 symptom.
 
+*Both of those last two sentences were wrong* — see the correction at the end.
+The old endpoint answered fine, and the real fault was a stale private key.
+
 * The check I should have run first
 
 One command would have saved the hour:
@@ -80,8 +83,12 @@ The correct move is to swap the peer in place, with no teardown:
 #+begin_src sh
 wg set proton0 private-key /tmp/new-key
 wg set proton0 peer <server-pubkey> endpoint 176.113.74.82:51820 \
-       allowed-ips 0.0.0.0/0,::/0 persistent-keepalive 25
+       allowed-ips 0.0.0.0/0 persistent-keepalive 25
 #+end_src
+
+(`::/0` was in this command originally. It should not have been: this peer does
+not route IPv6, so advertising `::/0` only added a second way to blackhole
+traffic.)
 
 Plus the endpoint pin, so the deadlock cannot return:
 
@@ -141,3 +148,48 @@ three minute window. The thresholds come from that number, not from taste.
   visible and uplinks are not.
 - Keep the honest number. The library is smaller than it looked for an hour, and
   the reason was ours.
+
+* Correction, same day, after the tunnel came back
+
+Three claims above did not survive the next six hours. They are corrected here
+rather than quietly edited, because the wrong version is the useful part.
+
+**1. The old endpoint was never dead.** I wrote that Proton had rotated the
+server. It had not. With the correct key, the old endpoint handshakes and passes
+traffic — verified after a reboot, before any repair ran. The real fault was a
+*stale private key*: after a rolled-back deploy, `"/run/secrets/wg_proton_private_key"`
+still held the previous key while the config expected the new one. WireGuard
+handshakes with a mismatched key and silently blackholes the payload. A handshake
+is not a working tunnel. Rotating the endpoint was unnecessary.
+
+**2. There were seven outages, not one, and the cause was mine.** Every deploy
+that changed the `wg-quick-proton0` systemd unit restarted it, and a `wg-quick`
+restart deletes and recreates the interface — which strands this node. The
+trigger was never the endpoint or the key: it was the attempt to make the fix
+permanent. The last one was my own commit dropping a `wants/after
+sops-nix.service` override; that alone was enough to change the unit.
+
+**3. `::/0` should never have been in `allowedIPs`.** This peer does not route
+IPv6. Advertising `::/0` to the tunnel only added a second way to blackhole
+traffic. It is `0.0.0.0/0` only.
+
+The fix that finally worked was not a better command; it was making the command
+unnecessary:
+
+- the `wg-quick` block in Nix now deliberately quotes the *previous* endpoint, so
+  activating a new generation does not change the unit and therefore does not
+  restart the tunnel — verified across two deploys with `NRestarts=0` and an
+  unchanged `ActiveEnterTimestamp`;
+- a timer-driven reconciler owns the live state and converges it in place with
+  `wg set`, never a restart;
+- after any reboot the reconciler corrects the seed within ~90 seconds. Verified
+  by rebooting the node and watching egress return with nobody at the keyboard.
+
+And one more, small and embarrassing: the reconciler's own data-path check
+demanded HTTP `200` from `https://1.1.1.1/`, which answers `301`. It reported
+"no data path - endpoint/key mismatch" on a healthy tunnel for hours. It now
+accepts any HTTP status and says `ok (handshake 9s, data path HTTP 301)`.
+
+The durable output of this night is not a script but a document: `NETWORK.md` in
+the homelab repo. Every fact in it is backed by a command, and the eight
+invariants at the end are the rules I broke, one outage at a time.

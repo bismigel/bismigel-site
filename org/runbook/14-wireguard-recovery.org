@@ -1,0 +1,147 @@
+#+TITLE: Runbook 14 — WireGuard recovery and reboot-proofing
+#+DATE: 2026-10-25
+#+FILETAGS: :runbook:network:wireguard:
+#+DESCRIPTION: Recovering the media node's tunnel after a reboot or a stranded activation, and the constraints that keep it from stranding again.
+
+* Read this with =NETWORK.md= open
+
+=NETWORK.md= in the homelab repo is the authoritative network reference. This
+page is the procedure; that page is the truth about the network.
+
+* The shape of the problem
+
+=calamansi-intel= (192.168.2.81) has **no direct internet**. Every packet leaves
+through a WireGuard full tunnel to Proton (=proton0=). Three consequences:
+
+1. If the tunnel is not passing data, the node has no egress at all.
+2. *A handshake is not a working tunnel.* With the wrong private key WireGuard
+   still handshakes and blackholes the payload.
+3. =systemctl restart wg-quick-proton0= takes the node **off the network**. A
+   =wg-quick= restart deletes and recreates the interface. This has stranded the
+   node seven times in one night. Never do it on a node you cannot reach
+   out-of-band.
+
+* Symptom → what to do
+
+| Symptom | Cause | Action |
+|---|---|---|
+| Node unreachable, ARP answers, nothing above L2 | a =wg-quick= restart stranded it | physical power-cycle, then §"After a reboot" |
+| SSH works, egress =000= | tunnel up, no data path | §"Restore without restarting" |
+| SSH works, egress fine, ~15 s dead at boot | reconciler swapping seed → declared peer | wait, it is expected |
+| =wg show= has a fresh handshake but egress =000= | stale private key | compare fingerprints (§"Verify") |
+
+* Verify before you touch anything
+
+#+begin_src sh
+# is there really no egress? (control targets, not one site)
+for h in registry.npmjs.org example.com; do
+  printf '%-22s ' "$h"; curl -sS -o /dev/null --connect-timeout 8 -w '%{http_code}\n' "https://$h/"
+done
+
+# does the interface key match the key in SOPS?
+tr -d '\n' < /run/secrets/wg_proton_private_key | sha256sum | cut -c1-16
+wg show proton0 private-key | tr -d '\n' | sha256sum | cut -c1-16   # must match
+
+# is the endpoint reachable OUTSIDE the tunnel?
+ip route get 176.113.74.82
+
+# data path, not just a handshake
+wg show proton0 | grep -E 'endpoint|latest handshake|transfer'
+#+end_src
+
+* Restore without restarting
+
+The staged recovery script swaps key and peer **in place** (=wg set=), never
+tearing the interface down. It is at =/root/wg-restore.sh= with the key at
+=/root/wg.key=:
+
+#+begin_src sh
+ssh root@192.168.2.81 \
+  'KEYFILE=/root/wg.key EXPECT_FP=1795227bcb589e43 /root/wg-restore.sh'
+#+end_src
+
+It verifies the key fingerprint first, removes peers that are not pointed at
+=176.113.74.82=, sets the declared peer, waits for a handshake, and probes the
+data path. Expect =egress: 200= within ~30 seconds.
+
+If =/root/wg.key= is gone, run it with the SOPS secret instead (default path):
+
+#+begin_src sh
+ssh root@192.168.2.81 '/root/wg-restore.sh'
+#+end_src
+
+* After a reboot — it should heal itself
+
+The reconciler runs at =90 s= after boot and every =60 s= after that. It pins the
+endpoint route, makes the interface key match SOPS, removes stale peers, sets the
+declared peer, and probes the data path.
+
+Expected timeline:
+
+| Time | State |
+|---|---|
+| ~30 s | seed interface up, egress already works |
+| ~90 s | reconciler converges to the declared peer; egress blips ~15 s |
+| ~110 s | egress =200=, node =Ready= |
+
+Verified by rebooting the node and doing nothing. If egress is still dead after
+three minutes:
+
+#+begin_src sh
+systemctl list-timers --all | grep wireguard-reconcile
+journalctl -u wireguard-reconcile.service -n 20 --no-pager
+#+end_src
+
+A verdict of =ok (handshake Ns, data path HTTP 301)= is healthy (=301= is
+correct: =https://1.1.1.1/= redirects).
+
+* The rule that keeps it up
+
+=wg-quick= is only the **boot seed**. It is deliberately configured with the
+*previous* endpoint and peer so that activating a new generation does not change
+its systemd unit — because a changed unit is restarted, and the restart is what
+strands the node.
+
+Check after every deploy:
+
+#+begin_src sh
+systemctl show wg-quick-proton0 -p NRestarts -p ActiveEnterTimestamp
+#+end_src
+
+=NRestarts= must stay =0= and =ActiveEnterTimestamp= must not move. If either
+changes, the deploy changed the unit — stop and investigate before doing anything
+else.
+
+The live state belongs to =bakuran.wireguard= (=modules/wireguard-reconcile.nix=):
+endpoint =176.113.74.82=, peer =nLx6…=, =allowedIPs 0.0.0.0/0=.
+
+* Migrating to =networking.wireguard= (not yet applied)
+
+=modules/wireguard-native.nix= stages the migration: =networking.wireguard= uses
+=wg setconf= against the existing link instead of deleting it. It is imported but
+**inert** — =bakuran.wireguard.useNative= defaults to =false= and no
+=wireguard-proton0.service= is generated.
+
+Do **not** enable it during a normal deploy. Activating it replaces the unit:
+systemd stops =wg-quick-proton0= (deleting the link) and starts
+=wireguard-proton0= — the same delete-and-recreate that strands the node.
+
+Procedure, only with physical access:
+
+1. Test it in =staging-vm= first, with Cilium installed (the VM cannot reproduce
+   the stranding without it).
+2. Delete the =networking.wg-quick.interfaces.proton0= block *and* the
+   =systemd.services."wg-quick-proton0"= override from
+   =hosts/calamansi-intel/default.nix=.
+3. Set =bakuran.wireguard.useNative = true=.
+4. Deploy with the machine reachable and someone able to power-cycle it.
+5. Verify: =ip -4 rule show=, =ip -4 route show table 51820=, =wg show proton0=,
+   egress =200=. The reconciler should then have nothing to change.
+
+* Do not
+
+- Do not =systemctl restart wg-quick-proton0= on a node you cannot reach.
+- Do not rotate the endpoint to "fix" egress; the endpoint was never the problem.
+- Do not re-add =::/0= to =allowedIPs=.
+- Do not report "no data path" from a check that demands exactly HTTP 200.
+- Do not trust a handshake as proof of a working tunnel.
