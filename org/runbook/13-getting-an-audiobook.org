@@ -1,0 +1,75 @@
+#+TITLE: Getting an audiobook (AudioBookBay → qBittorrent → Audiobookshelf)
+#+SUMMARY: The manual path that works today, verified end to end, and the search quirk that makes availability checks lie.
+#+GROUP: Media
+
+There is no *arr for audiobooks in this lab yet, and AudioBookBay has no Prowlarr
+definition. The manual path is short and it works — verified 2026-10-25 with
+=Designing Data-Intensive Applications= (743 MB m4b, imported with a 27h duration).
+
+* The path
+
+1. Find the release on AudioBookBay and copy its **info hash** (or the magnet).
+2. Add it to qBittorrent with the audiobooks category and save path:
+
+#+begin_src sh
+# on the media node; password from BWS qbt-password
+K=$(kubectl -n media get secret media-setup -o jsonpath='{.data.qbt-password}' | base64 -d)
+curl -s -c /tmp/qc -o /dev/null --data "username=admin&password=$K" \
+  http://127.0.0.1:8081/api/v2/auth/login
+
+curl -s -b /tmp/qc -o /dev/null -w '%{http_code}\n' \
+  --data-urlencode "urls=magnet:?xt=urn:btih:<info-hash>&dn=<name>" \
+  --data-urlencode "savepath=/downloads/audiobooks" \
+  --data-urlencode "category=audiobooks" \
+  http://127.0.0.1:8081/api/v2/torrents/add
+rm -f /tmp/qc
+#+end_src
+
+=qBittorrent= mounts the pool at =/downloads=, so =/downloads/audiobooks= is
+=/mnt/media/audiobooks= — exactly the Audiobookshelf library. No move needed.
+
+3. When the torrent finishes, force an Audiobookshelf scan:
+
+#+begin_src sh
+# library id for "Audiobooks" (0auth via the admin account, see page 03)
+curl -s -H 'Host: audiobookshelf.bismigel.dev' -H "Authorization: Bearer $TOKEN" \
+  -X POST http://127.0.0.1:32080/api/libraries/<library-id>/scan
+#+end_src
+
+ABS needs a *complete* file before it will read metadata, so a scan during the
+download shows nothing. That is expected.
+
+4. Drop the torrent when it is done (=deleteFiles=false= keeps the files):
+
+#+begin_src sh
+curl -s -b /tmp/qc --data "hashes=<hash>&deleteFiles=false" \
+  http://127.0.0.1:8081/api/v2/torrents/delete
+#+end_src
+
+* The search quirk that makes availability checks lie
+
+AudioBookBay **ANDs every term**. Long queries return nothing even when the book
+is there:
+
+| Query | Rows |
+|---|---|
+| =The+Courage+to+Be+Disliked= | **0** |
+| =courage+disliked= | **7** (both Kishimi titles) |
+| =atomic+habits= | 9 (control: proves the request shape works) |
+
+So when checking whether a book exists, use **two or three significant words**,
+never the full Goodreads title with its subtitle. A scan that reports "0 of 31
+wanted books available" is almost always this, not an empty tracker — always
+include a control query for a title you know exists.
+
+* What is not automated yet
+
+LazyLibrarian has qBittorrent configured and =AudioStatus=Wanted= on the IT books,
+but it can only find releases through an indexer, and AudioBookBay has no Prowlarr
+definition (absent from the ~586 bundled definitions, and 404 in the upstream
+repo). Writing one is the remaining work: rows are =div.post=, title is
+=div.postTitle=, the magnet lives on the =/audio-books/…= detail page, and the
+query must be trimmed to a few tokens or it hits the trap above.
+
+Until then: manual magnet, or a page of clicking. It works, it just is not
+automatic.
