@@ -1,0 +1,131 @@
+#+TITLE: The media node has no egress (WireGuard down)
+#+SUMMARY: How to tell "the internet is broken for this node" apart from "the sites block us", the two faults that caused it, and the live fix that does not take the node down.
+#+GROUP: Recovery
+
+This node sends all traffic through a ProtonVPN WireGuard tunnel
+(`networking.wg-quick.interfaces.proton0`, `allowedIPs 0.0.0.0/0`). When that
+tunnel dies, *everything* on `.81` loses the internet: no indexer searches, no
+Usenet, no image pulls, no Cloudflare lookups. The symptom in each app looks
+different, and all of them look like an application bug.
+
+On 2026-10-25 it cost an hour and a wrong conclusion ("the indexers block us").
+
+* First: is it us or them
+
+Three commands, in this order.
+
+#+begin_src sh
+# 1. does the tunnel have a live handshake? (keepalive is 25s)
+ssh root@media 'wg show proton0 | grep -E "handshake|transfer"'
+
+# 2. does ANY external TCP work? (not just the site you care about)
+ssh root@media 'for h in example.com registry.npmjs.org; do printf "%-22s " "$h"; \
+  curl -sS -o /dev/null --connect-timeout 8 -w "%{http_code}\n" "https://$h/"; done'
+
+# 3. can a pod do it too (pod egress NATs via the node)
+kubectl -n media exec deploy/media-mcp -- \
+  python3 -c 'import urllib.request as u; print(u.urlopen("https://example.com", timeout=10).status)'
+#+end_src
+
+Reading the results:
+
+| Result | Meaning |
+|---|---|
+| handshake minutes/hours old, `0 B received`, packets sent | the endpoint is gone — Proton rotated the server, or the key was revoked |
+| `code=000 conn=0.000000s` on *every* target | our egress, not the site. Stop blaming the site |
+| handshake fresh but one site fails | now it is the site (or its Cloudflare) |
+
+* Fault 1: the endpoint route pointed into the tunnel
+
+#+begin_src sh
+ssh root@media 'ip route get <endpoint-ip>'
+# bad:  <endpoint-ip> dev proton0 table 51820 src 10.2.0.2
+# good: <endpoint-ip> via 192.168.2.1 dev eno1 src 192.168.2.81
+#+end_src
+
+If the endpoint resolves *into* the tunnel, the handshake can never leave the
+box — a full bootstrap deadlock, and packets pile up as "sent" with nothing
+received. `hosts/calamansi-intel/default.nix` now pins it in `postSetup`:
+
+#+begin_src nix
+postSetup = [
+  "bash -c 'GW=$(ip route show default table main | awk \"{print $3}\" | head -1); \
+             DEV=$(ip route show default table main | awk \"{print $5}\" | head -1); \
+             ip route replace <endpoint-ip>/32 via $GW dev $DEV table main'"
+];
+#+end_src
+
+The `/32` survives the `suppress_prefixlength 0` rule that deliberately hides the
+default route from tunnel-destined lookups.
+
+* Fault 2: the endpoint itself is dead
+
+Proton rotates server IPs, and a revoked config (same device slot re-downloaded)
+also stops answering. Fix: download a *fresh* WireGuard config, pick a *P2P*
+server (needed for torrents), preferably *without IPv6* (this node's policy
+routing is IPv4-only), then update:
+
+1. `secrets/homelab.yaml` → `wg_proton_private_key` (SOPS).
+   Editing from the admin box needs `SOPS_AGE_KEY_FILE=~/.config/sops/age/homelab.txt`.
+2. `hosts/calamansi-intel/default.nix` → peer `endpoint` *and* `publicKey`.
+3. `nix run github:serokell/deploy-rs -- .#calamansi-intel`.
+
+*Remove the downloaded `.conf` afterwards* — the key belongs in SOPS, not in a
+file in your home directory.
+
+* Apply it live without taking the node down
+
+Do *not* run `systemctl restart wg-quick-proton0` on this host unless you have
+out-of-band access. On 2026-10-25 that restart left the machine unreachable (ARP
+answered, nothing above L2) and it needed a physical power-cycle.
+
+Swap the key and endpoint in place instead:
+
+#+begin_src sh
+# on the admin box: extract quietly, never echo the key
+awk -F' = ' '/^PrivateKey/{print $2}' new.conf > /tmp/pk && chmod 600 /tmp/pk
+PUB=$(awk -F' = ' '/^PublicKey/{print $2}' new.conf)
+EP=$(grep -oE 'Endpoint = [0-9.]+:[0-9]+' new.conf | cut -d' ' -f3)
+
+cat /tmp/pk | ssh root@media 'umask 077; cat > /tmp/pk'
+ssh root@media "
+  ip route replace ${EP%:*}/32 via 192.168.2.1 dev eno1 table main
+  wg set proton0 private-key /tmp/pk
+  wg set proton0 peer $PUB endpoint $EP allowed-ips 0.0.0.0/0,::/0 persistent-keepalive 25
+  rm -f /tmp/pk
+"
+rm -f /tmp/pk
+#+end_src
+
+If an old peer lingers, remove it explicitly:
+`wg set proton0 peer <old-pubkey> remove`.
+
+Then verify: `wg show` handshake < 60s, `curl -sI https://example.com`.
+
+* After the tunnel is back
+
+1. Pods stuck in `ImagePullBackOff` will retry on their own schedule. To stop
+   waiting, delete them — the kubelet re-pulls immediately.
+2. *Monitoring*: `WireGuardNoHandshake` (critical after 5m),
+   `WireGuardHandshakeStale` (3m), `WireGuardMetricsMissing`. Metrics come from a
+   30s textfile exporter on the node (`modules/wireguard-metrics.nix`), read by
+   node-exporter from `/var/lib/node-exporter/textfile`.
+3. Re-test whatever you were debugging. In this incident the "blocked" sites were
+   reachable as soon as egress was real — `ebookbay.com` and `audiobookbay.lu`
+   both return 200 from the media node. Only `annas-archive.org`, `libgen.is` and
+   `library.lol` are genuinely unreachable.
+
+* Egress allowlists: what actually needs whitelisting
+
+Usually nothing. Pods in `media` and `books` may already reach public 80/443, and
+the host has no egress filter. Exceptions worth knowing:
+
+- `sabnzbd` has a *narrow* Cilium policy (Frugal Usenet ranges, Prowlarr on
+  9696, and the Cloudflare edge on 443 for NZB fetches). A new Usenet indexer or
+  provider domain may need an entry there.
+- A *torrent client in LazyLibrarian* cannot work today: `books` egress allows
+  `downloads:8080` (SAB) only, and LL has no torrent client configured at all.
+  That is a configuration + policy change, not a network one.
+- Pod DNS differs from host DNS: `annas-archive.org` fails name resolution from
+  pods (`Name or service not known`) while the host fails differently. Check DNS
+  separately before concluding "blocked".
