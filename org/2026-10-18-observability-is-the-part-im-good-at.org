@@ -264,8 +264,3 @@ dashboards by question; and put all of it in git.
 That is the story so far. Two boxes became three. The edge learned to survive one
 failure. The lab learned to watch itself. It is not finished, but it is honest, and now
 it tells me when something breaks.
-
-#+begin_quote
-*Building the lab: Part 8 of 8.* Previous: [[file:2026-10-17-two-tunnels-are-better-than-one.org][Cloudflare Tunnel HA: two connectors for a safer homelab edge]].
-Next: [[file:2026-10-18-homelab-epilogue.org][Homelab epilogue: exposing services and publishing the repo]].
-#+end_quote

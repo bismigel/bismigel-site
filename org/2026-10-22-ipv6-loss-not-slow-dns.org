@@ -144,7 +144,7 @@ resource "cloudflare_zone_setting" "ipv6" {
 }
 #+end_src
 
-That is PR https://github.com/bismigel/bakuran-infra/pull/69. The change went
+That is PR =bakuran-infra= #69 (private repository). The change went
 in through =tofu apply=, not through the dashboard, so the reason lives in the
 repo next to the setting.
 
@@ -202,8 +202,8 @@ client could ask for 40 Mbit/s and still get 11.6.
 
 That value is not a Kubernetes field. It lives in =config/system.xml= on the
 =jellyfin-config= PVC, which is why nobody sees it in the repo. It is removed by
-a one-shot Job that calls the API and verifies the result:
-https://github.com/bismigel/bakuran-gitops/pull/151
+a one-shot Job that calls the API and verifies the result: =bakuran-gitops=
+PR #151.
 
 After it ran, the same file started at 31.7 Mbit/s, still tone-mapping but with
 no downscale:
@@ -256,8 +256,8 @@ streams before the box is full.
 
 * Links
 
-- The edge change: https://github.com/bismigel/bakuran-infra/pull/69
-- The bitrate cap removal: https://github.com/bismigel/bakuran-gitops/pull/151
+- The edge change: =bakuran-infra= PR #69 (private repository)
+- The bitrate cap removal: =bakuran-gitops= PR #151 (private repository)
 - Cloudflare IPv6 compatibility:
   https://developers.cloudflare.com/network/ipv6-compatibility/
 - Cloudflare zone settings API:

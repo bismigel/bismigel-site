@@ -179,7 +179,5 @@ revision.
   https://helm.sh/docs/topics/advanced/#post-rendering
 - ArgoCD high availability:
   https://argo-cd.readthedocs.io/en/stable/operator-manual/high_availability/
-- Production GitOps changes:
-  https://github.com/bismigel/bakuran-gitops/pull/124
-  https://github.com/bismigel/bakuran-gitops/pull/125
-  https://github.com/bismigel/bakuran-gitops/pull/126
+- Production GitOps changes: =bakuran-gitops= PR #124, #125 and #126 (the
+  repository is private, so there is no public link).
