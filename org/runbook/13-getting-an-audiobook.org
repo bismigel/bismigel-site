@@ -1,14 +1,35 @@
 #+TITLE: Getting an audiobook (AudioBookBay → qBittorrent → Audiobookshelf)
-#+SUMMARY: The manual path that works today, verified end to end, and the search quirk that makes availability checks lie.
+#+SUMMARY: The manual path that works today, verified end to end, why the site is unreachable from the lab, and the search quirk that makes availability checks lie.
 #+GROUP: Media
 
-There is no *arr for audiobooks in this lab yet, and AudioBookBay has no Prowlarr
-definition. The manual path is short and it works — verified 2026-10-25 with
-=Designing Data-Intensive Applications= (743 MB m4b, imported with a 27h duration).
+There is no *arr for audiobooks in this lab yet. AudioBookBay does have a
+Prowlarr definition now (page 10), but the site does not answer the media node.
+The manual path is short and it works — verified 2026-10-25 with =Designing
+Data-Intensive Applications= (743 MB m4b, imported with a 27h duration).
+
+* Reaching the site is the hard part
+
+AudioBookBay blocks our egress IP at the application layer. The TCP handshake
+succeeds on 443 and 80, then the request is dropped without a byte in reply:
+
+| Network | =audiobookbay.lu= |
+|---------+-------------------|
+| media node (ProtonVPN exit, AS9009 M247) | 000 after ~20s |
+| platform (home ISP) | 200 in ~1s |
+
+The block is on the *IP*, not the hostname: =http= with the right =Host= header,
+=https= with SNI set to the IP, and =https= with SNI set to an unrelated domain
+all time out the same way. General egress from the media node is fine at the
+same moment (nyaa.si, google.com, cloudflare.com all answer in under a second).
+
+So: **browse the site from a machine on the home ISP**, not from the lab, and do
+not re-enable the LazyLibrarian AudioBookBay provider — every search hangs.
 
 * The path
 
-1. Find the release on AudioBookBay and copy its **info hash** (or the magnet).
+1. Find the release on AudioBookBay (from home) and copy its **info hash**. The
+   detail page has no magnet link; the download link redirects to a login page,
+   so the hash is what you need, not a click.
 2. Add it to qBittorrent with the audiobooks category and save path:
 
 #+begin_src sh
@@ -64,12 +85,16 @@ include a control query for a title you know exists.
 
 * What is not automated yet
 
-LazyLibrarian has qBittorrent configured and =AudioStatus=Wanted= on the IT books,
-but it can only find releases through an indexer, and AudioBookBay has no Prowlarr
-definition (absent from the ~586 bundled definitions, and 404 in the upstream
-repo). Writing one is the remaining work: rows are =div.post=, title is
-=div.postTitle=, the magnet lives on the =/audio-books/…= detail page, and the
-query must be trimmed to a few tokens or it hits the trap above.
+LazyLibrarian has qBittorrent and SABnzbd configured and =AudioStatus=Wanted= on
+the IT books, but it can only find releases through an indexer, and the one
+indexer that has these books is unreachable from this network (above). The
+remaining work is an egress the site does not block, not a missing definition.
 
 Until then: manual magnet, or a page of clicking. It works, it just is not
 automatic.
+
+* See also
+
+- Page 10 — the Prowlarr side, including why a definition that works from home
+  still fails from the media node.
+- Page 11 — telling "this node has no internet" apart from "this site blocks us".

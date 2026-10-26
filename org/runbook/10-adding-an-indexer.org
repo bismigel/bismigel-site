@@ -134,14 +134,15 @@ outside and are worth separating every time.
 
 | Indexer | Verdict |
 |---------+---------|
-| AudioBookBay | *no definition* — absent from the 586 on disk *and* 404 in the upstream repo |
+| AudioBookBay | definition *now ships* in gitops (=manifests/media/prowlarr-definitions.yaml=, custom Cardigann) and returns rows — but the site blackholes our egress, so searches time out. See page 13. |
 | EBookBay | definition exists, but every search: =all selected indexers unavailable= (blocks our egress) |
 | AudioNews / ProAudioTorrents | private, need an account |
 
 For audiobooks the practical route is a private tracker account
 (MyAnonamouse, BookTracker): one indexer, no Cloudflare fight, covers audiobooks
 and ebooks. Public trackers behind Cloudflare need a FlareSolverr proxy in front,
-which is one more service and one more failure mode.
+which is one more service and one more failure mode. The manual magnet path in
+page 13 works today and does not need any of this.
 
 For ebooks specifically, no indexer is needed at all — use
 =bakuran-infra/scripts/books-fetch.sh=, which downloads straight into the library

@@ -1,7 +1,6 @@
-#+TITLE: Runbook 14 — WireGuard recovery and reboot-proofing
-#+DATE: 2026-10-25
-#+FILETAGS: :runbook:network:wireguard:
-#+DESCRIPTION: Recovering the media node's tunnel after a reboot or a stranded activation, and the constraints that keep it from stranding again.
+#+TITLE: WireGuard recovery and reboot-proofing
+#+SUMMARY: Recover the media node's tunnel after a reboot or a stranded activation, and the rules that keep it from stranding again.
+#+GROUP: Recovery
 
 * Read this with =NETWORK.md= open
 
@@ -146,3 +145,8 @@ Procedure, only with physical access:
   only so its unit stays byte-identical; the reconciler enforces IPv4-only).
 - Do not report "no data path" from a check that demands exactly HTTP 200.
 - Do not trust a handshake as proof of a working tunnel.
+
+* See also
+
+- Page 11 — triage first: "no internet" and "the sites block us" look alike.
+- Page 12 — the pre-flight that keeps a deploy from becoming a recovery.

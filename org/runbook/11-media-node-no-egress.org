@@ -141,3 +141,8 @@ the host has no egress filter. Exceptions worth knowing:
 - Pod DNS differs from host DNS: `annas-archive.org` fails name resolution from
   pods (`Name or service not known`) while the host fails differently. Check DNS
   separately before concluding "blocked".
+
+* See also
+
+- Page 12 — the pre-flight checks that avoid this outage in the first place.
+- Page 14 — the recovery procedure once the tunnel is already stranded.
