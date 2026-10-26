@@ -165,7 +165,3 @@ That is the theme, really. I have learned more from the things I got wrong than 
 anything I read.
 
 Before any of the rest, I needed somewhere to write it all down. That is the next part.
-
-#+begin_quote
-*Building the lab: Part 1 of 8.* Next: [[file:2026-10-02-how-this-site-is-built.org][How this site is built]].
-#+end_quote

@@ -69,6 +69,7 @@ Until then, Forgejo is a planned experiment, not a migration.
 
 - Forgejo: https://forgejo.org/
 - Forgejo Actions: https://forgejo.org/docs/latest/user/actions/
-- Forgejo migration: https://forgejo.org/docs/latest/user/migrations/
+- Forgejo migration:
+  https://forgejo.org/docs/latest/contributor/repository-migration/
 - GitHub Free private repository limits:
   https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches

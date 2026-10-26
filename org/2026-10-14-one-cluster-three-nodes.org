@@ -69,8 +69,3 @@ also the first version that is true.
 
 The cluster was finally standing on three legs. With the hard part done, I could start
 using it, and I could let a model take over the boring parts.
-
-#+begin_quote
-*Building the lab: Part 4 of 8.* Previous: [[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext]].
-Next: [[file:2026-10-16-deepseek-writes-the-boring-parts.org][Where AI fits in the lab]].
-#+end_quote

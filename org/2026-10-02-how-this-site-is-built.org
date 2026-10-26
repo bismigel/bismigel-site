@@ -74,8 +74,3 @@ it broke. That has helped me more than any clever trick.
 
 Now I had a place to write. The real work could start. The first thing that beat me
 was secrets.
-
-#+begin_quote
-*Building the lab: Part 2 of 8.* Previous: [[file:2026-09-15-homelab-design.org][The design of the homelab]].
-Next: [[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext]].
-#+end_quote
