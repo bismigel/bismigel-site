@@ -147,3 +147,8 @@ turned a 30-second fix into an hour of blaming indexers.
 3. Verify `ip route get <endpoint>` goes out `eno1`, never `proton0`.
 4. Know the last good generation; tag it before network changes.
 5. Watchdog + the three alerts, so a dead tunnel fixes itself or shouts.
+
+* See also
+
+- Page 11 — how to triage the symptom when the node is already dark.
+- Page 14 — the recovery procedure, and why =wg set= instead of a restart works.

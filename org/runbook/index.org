@@ -6,7 +6,7 @@
 | Field      | Value                                                                 |
 |------------+-----------------------------------------------------------------------|
 | Document   | Bakuran operations runbook                                            |
-| Version    | *2026-10-23*                                                          |
+| Version    | *2026-10-26*                                                          |
 | Audience   | Future me, and the agent that helps run the lab                       |
 | Companion  | [[https://bismigel.dev/projects/bakuran-homelab/][The Bakuran homelab: technical reference]]                           |
 | Access     | Cloudflare Access (runbook.bismigel.dev)                              |
@@ -17,6 +17,29 @@ looks like this; these pages are what to type when something needs to change,
 and the one gotcha that turns a five-minute change into an evening.
 
 Pick a task from the list below, or start with *Before you start*.
+
+* The tasks
+
+| Task                                                | Page |
+|-----------------------------------------------------+------|
+| Add a public hostname (FQDN)                        | 01   |
+| Add a Usenet provider                               | 02   |
+| Create, store or retire a Jellyfin account          | 03   |
+| Create an Immich user                               | 04   |
+| Deploy a change (app, GitOps, NixOS)                | 05   |
+| Add, reference or rotate a secret                   | 06   |
+| Prove a backup restores                             | 07   |
+| Work out what is broken                             | 08   |
+| Change media quality preferences                    | 09   |
+| Add an indexer to Prowlarr                          | 10   |
+| The media node has no egress                        | 11   |
+| Make a network change on a headless box             | 12   |
+| Get an audiobook                                    | 13   |
+| Recover WireGuard and keep it recovered             | 14   |
+
+Pages 11, 12 and 14 overlap on purpose and are read together: 11 triages the
+symptom, 12 is the pre-flight that stops it happening, 14 is the recovery when it
+has already happened.
 
 * Before you start
 
