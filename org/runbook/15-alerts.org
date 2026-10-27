@@ -1,0 +1,120 @@
+#+TITLE: Every alert, what it means, and what to do
+#+SUMMARY: The full alert catalogue with the first command and the fix for each — plus the ones that are a trap if you react before reading.
+#+GROUP: Recovery
+
+Alerts come from two places, and they behave differently:
+
+- *Prometheus rules* (35) are evaluated centrally. They have a =for:= duration, so
+  they mean "this has been true for a while", and they clear themselves when the
+  condition clears.
+- *Pushed alerts* (8) are sent by systemd hooks on the host: a failed backup, a
+  failed smoke test, a stale generation. They carry no =endsAt=, so Alertmanager
+  resolves them ~5 minutes after the last push. *"Resolved" for a pushed alert
+  means "not re-pushed", not "fixed".* The summary says so.
+
+To see what is firing right now:
+
+#+begin_src sh
+curl -s http://127.0.0.1:30903/api/v2/alerts | jq -r '.[] | "\(.labels.alertname) \(.labels.instance // .labels.unit // "")"'
+#+end_src
+
+* Triage order when several fire at once
+
+1. *EtcdQuorumAtRisk* — everything else is noise if the control plane is going.
+2. *NodeDown* — is a machine actually gone, or just its exporter?
+3. *CloudflareTunnelDown / PublicProbeDown* — is the edge out?
+4. *WireGuardNoEgress* — is the media node cut off?
+5. *MediaBranchCritical* — imports are about to fail.
+6. The rest are degradations: read, schedule, do not page yourself at 3am.
+
+* Infra
+
+| Alert | Sev | Means | Fix |
+|-------+-----+-------+-----|
+| =NodeDown= | crit | node-exporter stopped reporting for 5m | =ping=/=ssh= the host first. Up but no metrics → =kubectl -n monitoring rollout restart ds/node-exporter=. Down → power, then check quorum (page 12) |
+| =TargetDown= | warn | some scrape target is unreachable (kubelet-cadvisor and longhorn excluded — they have their own) | =curl -s .../api/v1/targets \| jq '.data.activeTargets[] \| select(.health!="up")'= |
+| =DiskFillingUp= | warn | a non-media filesystem is >85% | =nix-collect-garbage -d=, =journalctl --vacuum-time=14d=, check Longhorn replicas |
+| =HostMemoryHigh= | warn | >90% available used for 15m | =kubectl top pods -A --sort-by=memory \| head= |
+| =MediaBranchFillingUp= | warn | *one mergerfs branch* is >85% — the pool union hides this | rebalance, page 09 step "a branch is full" |
+| =MediaBranchCritical= | crit | branch >93%; mergerfs refuses creates under 4G free | free space *now*; imports will fail mid-write otherwise |
+| =MediaPoolFillingUp= / =MediaPoolCritical= | warn/crit | the union is >85% / >92% | reclaim with the *arr cleanup, or add a disk |
+| =MediaPoolDaysToFull= | warn | =predict_linear= says 7 days | same as above, but you have a week |
+| =StrayCNIAddress= | warn | an interface that is not Cilium held an address inside the pod CIDR; the sweep removed it | read the journal tag =cni-stray-sweep=; any pod on that address was unreachable. See =NETWORK.md= invariant 9 |
+| =StrayCNIMetricsMissing= | warn | the sweep stopped reporting for 90m | =systemctl list-timers cni-stray-sweep=; check =/var/lib/node-exporter/textfile/stray-cni.prom= is world-readable |
+
+* WireGuard (media-node egress)
+
+| Alert | Sev | Means | Fix |
+|-------+-----+-------+-----|
+| =WireGuardNoHandshake= | crit | no handshake for 5m | page 11 triage, then page 14 recovery. Never restart the unit |
+| =WireGuardNoEgress= | crit | handshake fine, *data path dead* | the classic stale-key fault: compare fingerprints (=NETWORK.md= §9), then =wg-restore.sh= |
+| =WireGuardRestarted= | warn | the unit restarted — the thing that strands the node | check =NRestarts=; if the node is still reachable, do not "fix" it |
+| =WireGuardMetricsMissing= | warn | the textfile is unreadable or the timer stopped | =ls -l /var/lib/node-exporter/textfile/=, permissions must be 0644 |
+
+* etcd
+
+| Alert | Sev | Means | Fix |
+|-------+-----+-------+-----|
+| =EtcdNoLeader= | crit | this member has no leader 2m in | if one member: it will rejoin; if all: quorum loss, page 12 |
+| =EtcdMemberUnreachable= | warn | <3 members reporting | =kubectl -n kube-system get pods -l component=etcd=; usually the third node is rebooting |
+| =EtcdQuorumAtRisk= | crit | <2 leaders — writes are failing or about to | *stop everything else*, restore a member, never take a second one down |
+| =EtcdHighFsyncLatency= | warn | WAL fsync p99 >500ms, the disk is the bottleneck | check =iostat -x 1= on that node; Longhorn + etcd on one disk is the usual cause |
+| =EtcdDbSizeNearQuota= | warn | DB >1.5GiB of 2GiB | =etcdctl defrag= on each member in turn (one at a time) |
+
+* Cloudflare edge
+
+| Alert | Sev | Means | Fix |
+|-------+-----+-------+-----|
+| =CloudflareTunnelDown= | crit | the tunnel has no healthy connector | is any =cloudflared= pod running? =kubectl -n cloudflare get pods= |
+| =CloudflareTunnelSingleConnector= | warn | 1 of 2 connectors — HA is degraded | restart the missing pod; the second connector is on the other node |
+| =CloudflareZoneNotActive= | crit | the zone left "active" state | Cloudflare dashboard is *read-only for the agent* — ask the human |
+| =CloudflareZonePaused= | warn | zone is paused: traffic bypasses Cloudflare entirely | same — human, dashboard |
+| =CloudflareCertificateInactive= | warn | universal cert not active for 30m | usually resolves itself after DNS settles |
+| =CloudflareExporterStale= | warn | the edge exporter has not refreshed in 10m | token expired or API unreachable: rotate from BWS, restart the exporter |
+
+* ArgoCD and workloads
+
+| Alert | Sev | Means | Fix |
+|-------+-----+-------+-----|
+| =ArgoCDAppOutOfSync= | warn | drift between git and cluster for 15m | =argocd app diff <app>=; sync or fix git. *Never hand-edit the resource* |
+| =ArgoCDComponentDown= | crit | a component has no ready replica | =kubectl -n argocd get pods=; check the anti-affinity rule (one replica per node) |
+| =ArgoCDAppUnhealthy= | warn | Degraded/Missing/Unknown | =kubectl -n <ns> describe <resource>=; health usually follows a failing Job or probe |
+| =KubePodCrashLooping= | warn | >3 restarts in 15m | read =--previous= logs *before* deleting the pod: a clean exit means something is killing it (probe, OOM, unreachable address) |
+| =KubeDeploymentReplicasMismatch= | warn | short of desired for 10m | pod events → probe failures; a pod holding an address the node owns looks exactly like this |
+| =JellyfinNotRunning= | warn | no running Jellyfin container for 5m | strategy is =Recreate= (RWO PVC), so a rollout drops streams: check whether a roll is in progress before assuming a crash |
+
+* Public SLO
+
+| Alert | Sev | Means | Fix |
+|-------+-----+-------+-----|
+| =PublicProbeDown= | warn | blackbox probe of a public hostname failed 5m | curl it from the platform node; if the tunnel is up, it is the app |
+| =PublicSLOFastBurn= | warn | <99% availability over 1h and still failing | check what changed in the last hour (app deploy, ArgoCD sync) |
+| =PublicSLOSlowBurn= | warn | <99.5% over 6h | trend, not incident: look at the probe dashboard for the pattern |
+
+* Pushed alerts (from the hosts)
+
+| Alert | Sev | Means | Fix |
+|-------+-----+-------+-----|
+| =BackupFailed= | crit | =homelab-backup= or =backup-apps= failed | =journalctl -u homelab-backup -n 40=; usually R2 credentials or a missing dump |
+| =BackupCheckFailed= | warn | could not list R2 to check freshness | R2 token or network; re-run =systemctl start homelab-backup-freshness= |
+| =BackupStale= | crit | newest archive older than 36h | the timer stopped or uploads fail silently; check both hosts |
+| =BackupVerifyFailed= | crit | the weekly restore drill failed to decrypt or validate | the age key or the archive; do not assume the backup is good |
+| =SmokeTestFailed= | warn | the 15-minute smoke test genuinely failed | nodes, ArgoCD, Cilium, public site, media hostPort — the script prints which |
+| =SystemdUnitFailed= | crit | any host unit without its own name failed (e.g. =k3s=) | =journalctl -u <unit> -n 50= |
+| =SystemStale= | warn | the host has not been updated in 30 days | =deploy-rs= it — and check whether it *should* be that far behind |
+| =DocsDrift= | warn | the weekly docs check found =NETWORK.md= disagreeing with the cluster | fix the doc in the same PR as the change that invalidated it |
+
+* The three that are a trap
+
+*Do not restart =wg-quick-proton0=.* It is the cause of seven outages, not the
+fix. =WireGuardNoHandshake= and =WireGuardNoEgress= both have safe procedures
+(pages 11 and 14) that never touch the unit.
+
+*Do not delete a crash-looping pod first.* =KubePodCrashLooping= with restart
+count 6 and exit code 0 means something is *killing* a healthy process — probes,
+OOM, or an address that belongs to the node. Deleting the pod hides the evidence
+and, if the cause is deterministic, recreates it.
+
+*Do not treat a pushed alert's "Resolved" as recovery.* It expires ~5 minutes
+after the last failure report. If =BackupFailed= resolves but no backup ran, the
+backup still did not run.
