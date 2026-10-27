@@ -27,6 +27,9 @@ kubectl -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status
 
 * Where the detail lives
 
-The private context repo carries the exact addresses, identifiers and the
-long-form notes: `HARDENING.md`, `KNOWN-ISSUES.md`, `MEDIA.md`, `RUNBOOK.md`,
-`NEXT-STEPS.md`. These pages are the sanitized public companion.
+- *Page 15* is the alert catalogue: every alert this lab can fire, with the first
+  command and the fix.
+- Pages 11, 12 and 14 cover the network failure modes from three angles.
+- The private context repo carries the exact addresses, identifiers and the
+  long-form notes: `HARDENING.md`, `KNOWN-ISSUES.md`, `MEDIA.md`, `RUNBOOK.md`,
+  `NEXT-STEPS.md`. These pages are the sanitized public companion.
