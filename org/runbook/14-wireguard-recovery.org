@@ -15,16 +15,16 @@ through a WireGuard full tunnel to Proton (=proton0=). Three consequences:
 1. If the tunnel is not passing data, the node has no egress at all.
 2. *A handshake is not a working tunnel.* With the wrong private key WireGuard
    still handshakes and blackholes the payload.
-3. =systemctl restart wg-quick-proton0= takes the node **off the network**. A
-   =wg-quick= restart deletes and recreates the interface. This has stranded the
-   node seven times in one night. Never do it on a node you cannot reach
-   out-of-band.
+3. Restarting the tunnel is safe *only because* its policy rules carry explicit
+   priorities since 2026-10-28. The old =wg-quick= unit did not, and restarting
+   it stranded the node seven times in one night — see *The rule that keeps it
+   up* below before you change anything about =wireguard-proton0=.
 
 * Symptom → what to do
 
 | Symptom | Cause | Action |
 |---|---|---|
-| Node unreachable, ARP answers, nothing above L2 | a =wg-quick= restart stranded it | physical power-cycle, then §"After a reboot" |
+| Node unreachable, ARP answers, nothing above L2 | tunnel rules landed above =local= (the pre-2026-10-28 =wg-quick= bug) | physical power-cycle, then *After a reboot* |
 | SSH works, egress =000= | tunnel up, no data path | §"Restore without restarting" |
 | SSH works, egress fine, ~15 s dead at boot | reconciler swapping seed → declared peer | wait, it is expected |
 | =wg show= has a fresh handshake but egress =000= | stale private key | compare fingerprints (§"Verify") |
@@ -96,46 +96,69 @@ correct: =https://1.1.1.1/= redirects).
 
 * The rule that keeps it up
 
-=wg-quick= is only the **boot seed**. It is deliberately configured with the
-*previous* endpoint and peer so that activating a new generation does not change
-its systemd unit — because a changed unit is restarted, and the restart is what
-strands the node.
+The tunnel is =networking.wireguard= since 2026-10-28: one declaration in
+=modules/wireguard-native.nix=, no =wg-quick= block, no boot seed.
 
-Check after every deploy:
+What must not be lost is the *reason* the old =wg-quick= unit could not be
+touched. =wg-quick= adds its policy rules with =ip rule add= and no explicit
+priority, and the kernel derives that priority from the rule list
+(=fib_default_rule_pref()= returns the priority of the *second* rule, minus one).
+Cilium leaves a rule at priority 9 and =local= at 100, so the tunnel's rules
+landed at **98/99 — above =local=**. Packets to the node's own LAN address were
+then routed out of the interface instead of being delivered locally: the node
+stopped answering its own IP, ARP kept working, and only a power-cycle recovered
+it. Seven times on 2026-10-25.
+
+The fix is two words: =pref 32765= and =pref 32764=. =postSetup= in the native
+module carries them, =scripts/wg-fallback.sh= carries them, and
+=nix flake check= asserts they are still there. Removing them restores the bug.
+
+Restarting the tunnel is now routine — verified 3× on production on 2026-10-28
+with rules at 32764/32765, gateway reachable, egress 301 and a fresh handshake
+each time:
 
 #+begin_src sh
-systemctl show wg-quick-proton0 -p NRestarts -p ActiveEnterTimestamp
+systemctl restart wireguard-proton0
+ip rule show | head -5
 #+end_src
 
-=NRestarts= must stay =0= and =ActiveEnterTimestamp= must not move. If either
-changes, the deploy changed the unit — stop and investigate before doing anything
-else.
+The live state still belongs to =bakuran.wireguard=
+(=modules/wireguard-reconcile.nix=): endpoint =176.113.74.82=, peer =nLx6…=,
+=allowedIPs 0.0.0.0/0=. It enforces that in place with =wg set=, every 60 s.
 
-The live state belongs to =bakuran.wireguard= (=modules/wireguard-reconcile.nix=):
-endpoint =176.113.74.82=, peer =nLx6…=, =allowedIPs 0.0.0.0/0=.
+* Rolling back
 
-* Migrating to =networking.wireguard= (not yet applied)
+**Do not roll back with =wg-quick up=.** It re-adds the rules without =pref=,
+which is the outage. Use:
 
-=modules/wireguard-native.nix= stages the migration: =networking.wireguard= uses
-=wg setconf= against the existing link instead of deleting it. It is imported but
-**inert** — =bakuran.wireguard.useNative= defaults to =false= and no
-=wireguard-proton0.service= is generated.
+#+begin_src sh
+CONF=/root/proton0-fallback.conf scripts/wg-fallback.sh
+#+end_src
 
-Do **not** enable it during a normal deploy. Activating it replaces the unit:
-systemd stops =wg-quick-proton0= (deleting the link) and starts
-=wireguard-proton0= — the same delete-and-recreate that strands the node.
+That rebuilds the interface with =ip link add= + =wg setconf= from a
+=wg showconf= snapshot and installs both rules with their priorities pinned.
+The snapshot =/root/proton0-fallback.conf= was saved on 2026-10-28 while the
+tunnel was healthy; save a fresh one (=wg showconf proton0=) after any endpoint
+or key rotation.
 
-Procedure, only with physical access:
+* History: how the cutover was done (2026-10-28)
 
-1. Test it in =staging-vm= first, with Cilium installed (the VM cannot reproduce
-   the stranding without it).
-2. Delete the =networking.wg-quick.interfaces.proton0= block *and* the
-   =systemd.services."wg-quick-proton0"= override from
-   =hosts/calamansi-intel/default.nix=.
-3. Set =bakuran.wireguard.useNative = true=.
-4. Deploy with the machine reachable and someone able to power-cycle it.
-5. Verify: =ip -4 rule show=, =ip -4 route show table 51820=, =wg show proton0=,
-   egress =200=. The reconciler should then have nothing to change.
+Kept because the shape recurs: rehearse, then replace the unit with a human at
+the box.
+
+1. Rehearse in =staging-vm= with Cilium installed, booting the *real* module —
+   the shell imitation proves the mechanism, not the artifact
+   (=staging/cluster-3node/native-test.nix=).
+2. Stage the fallback: =wg showconf proton0 > /root/proton0-fallback.conf=.
+3. Delete the =networking.wg-quick.interfaces.proton0= block *and* the
+   =systemd.services."wg-quick-proton0"= override; set
+   =bakuran.wireguard.useNative = true=.
+4. =scripts/preflight-wg.sh= now names this case (it used to say "cannot tell")
+   and still refuses it — the refusal is correct, override it knowingly.
+5. Deploy with someone able to power-cycle the node.
+6. Verify: rules at 32764/32765 *with Cilium's rule 9 present*, =ip route get
+   192.168.2.81= via =local=, =wg show proton0 latest-handshakes= fresh,
+   egress =301=, Cilium 3/3, then restart the unit three times.
 
 * Do not
 
