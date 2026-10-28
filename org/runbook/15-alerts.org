@@ -81,6 +81,9 @@ curl -s http://127.0.0.1:30903/api/v2/alerts | jq -r '.[] | "\(.labels.alertname
 | =ArgoCDAppUnhealthy= | warn | Degraded/Missing/Unknown | =kubectl -n <ns> describe <resource>=; health usually follows a failing Job or probe |
 | =KubePodCrashLooping= | warn | >3 restarts in 15m | read =--previous= logs *before* deleting the pod: a clean exit means something is killing it (probe, OOM, unreachable address) |
 | =KubeDeploymentReplicasMismatch= | warn | short of desired for 10m | pod events → probe failures; a pod holding an address the node owns looks exactly like this |
+| =PodRestartingOften= | warn | >3 restarts in 1h | *A node reboot restarts every DaemonSet on it*, so this fires for an hour after any reboot on pods that are fine. The rule now suppresses restarts for 1h after a node boots; if it fires anyway the pod is genuinely looping — =kubectl describe pod=, then the previous log |
+| =PodStuckPending= | warn | Pending for 15m (Jobs excluded) | unschedulable: =kubectl describe pod= → nodeSelector/affinity, a PVC that will not attach, or a taint |
+| =PodContainerConfigError= | warn | cannot create its container for 10m | usually a missing Secret/ConfigMap key, or a hostPath that does not exist on that node |
 | =JellyfinNotRunning= | warn | no running Jellyfin container for 5m | strategy is =Recreate= (RWO PVC), so a rollout drops streams: check whether a roll is in progress before assuming a crash |
 
 * Public SLO
