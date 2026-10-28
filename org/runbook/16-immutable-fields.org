@@ -1,0 +1,135 @@
+#+TITLE: Fields that cannot be changed, and how we move them
+#+SUMMARY: The Kubernetes fields that reject an update, the staged procedure for each, and the two traps that made these migrations take three attempts.
+#+GROUP: Recovery
+
+Some fields accept a value at creation and refuse every change afterwards. A normal
+=git= edit then fails at sync time with a validation error, and the object sits
+=OutOfSync= until somebody deletes it. Knowing which fields these are turns "why
+won't this apply" into a procedure.
+
+* The rule behind every case
+
+#+begin_quote
+Nothing that holds data is deleted until a copy exists somewhere else, and nothing
+is scaled down by hand — scale changes go through git, because self-heal undoes
+them in seconds.
+#+end_quote
+
+The general shape:
+
+#+begin_src text
+1. copy the data somewhere safe (stage it on the node or another volume)
+2. change the manifest in git and merge
+3. delete the live object so the controller can recreate it with the new spec
+4. let ArgoCD recreate it, then copy the data in
+5. scale back up (again: in git)
+#+end_src
+
+* What is immutable
+
+| Object | Field | Recovery |
+|--------+-------+----------|
+| =PersistentVolume= | =spec.nodeAffinity=, most of =spec= | delete + recreate; =Retain= keeps the bytes |
+| =PersistentVolumeClaim= | =spec.storageClassName=, =volumeName= | delete + recreate — **and the old data is not carried over** |
+| =PersistentVolumeClaim= | =spec.resources.requests.storage= | can only *grow* (=allowVolumeExpansion= must be true) |
+| =IngressClass= | =spec.controller= | delete + recreate |
+| =Deployment= | =spec.selector= | delete + recreate (or rename) |
+| =StatefulSet= | pod template changes | the existing pod keeps the old template until it is deleted |
+| =Job= | pod template | immutable: rename the job |
+| =Service= | =spec.clusterIP=, most of =type= | delete + recreate |
+
+* Worked example: a volume whose class has to change
+
+Moving ten app config volumes from =local-path= to Longhorn (2026-10-28). The trap
+is that =local-path= volumes are provisioned with reclaim policy =Delete=, so
+deleting the claim deletes the directory too.
+
+#+begin_src sh
+# 1. stage: copy each claim's data from its *currently bound* PV
+for pv in $(kubectl get pv -o name --no-headers | sed 's|persistentvolume/||'); do
+  ns=$(kubectl get pv "$pv" -o jsonpath='{.spec.claimRef.namespace}')
+  nm=$(kubectl get pv "$pv" -o jsonpath='{.spec.claimRef.name}')
+  src=$(kubectl get pv "$pv" -o jsonpath='{.spec.local.path}{.spec.hostPath.path}')
+  cp -a "$src"/. "/root/migrate/$ns-$nm"/
+done
+
+# 2. scale to zero and change the class IN GIT, then merge
+# 3. delete the claims; ArgoCD recreates them on the new class
+kubectl -n <ns> delete pvc <name>
+
+# 4. copy the staged data into the new volume (one Job per namespace:
+#    a pod can only mount PVCs from its own namespace)
+# 5. scale back up IN GIT
+#+end_src
+
+Two details that cost time:
+
+- **Staging must read the bound PV, not "the directory with the right name".**
+  A claim that has been recreated before leaves orphan directories, and a glob
+  will happily merge two generations of the same config.
+- **A copy pod can only mount PVCs from its own namespace.** Four namespaces
+  meant four Jobs, not one.
+
+* Worked example: an IngressClass with the wrong controller
+
+=IngressClass.spec.controller= is also immutable, which has a consequence people
+miss: if it was wrong at creation, it has *always* been wrong — it cannot have been
+fixed since.
+
+#+begin_src sh
+kubectl delete ingressclass nginx-admin      # ArgoCD recreates it from git
+#+end_src
+
+The rule that actually decides which controller serves an Ingress:
+
+#+begin_src text
+IngressClass.spec.controller == controller's --controller-class
+IngressClass name            == controller's --ingress-class
+#+end_src
+
+Both must hold. Two controllers that share a =--controller-class= will each claim
+**both** classes, which is how fifteen hostnames ended up 404ing behind Access on
+2026-10-28.
+
+* Trap 1: self-heal undoes a hand-made scale change
+
+#+begin_src text
+kubectl scale deploy/foo --replicas=0
+#+end_src
+
+ArgoCD restores the replica count within seconds, usually while you are still
+copying data. A live Postgres data directory copied mid-write is corrupt data that
+looks fine until it does not.
+
+Scale to zero **in git**, do the work, then scale back up in git. Two small PRs are
+cheaper than one corrupt database.
+
+* Trap 2: a mount is busy and will not come back
+
+=mergerfs= and =hostPath= mounts cannot be remounted while any pod holds them —
+and a mount can be held by something unexpected. In one case it was the weekly
+backup =rsync=, whose working directory was inside the pool.
+
+#+begin_src text
+Failed to restart mnt-media.mount
+umount: /mnt/media: target is busy
+#+end_src
+
+Find the holder before deleting anything:
+
+#+begin_src sh
+for p in /proc/[0-9]*; do
+  for f in cwd root; do
+    t=$(readlink "$p/$f" 2>/dev/null) || continue
+    case "$t" in /mnt/media*) echo "$p $f $t $(cat $p/comm)";; esac
+  done
+done
+#+end_src
+
+* Checklist before deleting any live object
+
+- [ ] does it hold data? if yes, is a copy staged *and verified* (=tar --compare=)?
+- [ ] is the replacement spec already merged, so ArgoCD recreates it correctly?
+- [ ] is the reclaim policy what you think it is (=kubectl get pv <n> -o jsonpath='{.spec.persistentVolumeReclaimPolicy}')?
+- [ ] is anything holding a mount or a file open in it?
+- [ ] do you have a way back if the object does not come back?
