@@ -71,22 +71,39 @@ ssh root@192.168.2.81 '/root/wg-restore.sh'
 
 * After a reboot — it should heal itself
 
+Since 2026-10-28 a reboot is part of the acceptance test, not a risk: the tunnel
+is a normal =networking.wireguard= unit whose policy rules carry explicit
+priorities, so nothing about bringing it up can strand the node.
+
+Verified on 2026-10-28 (twice): tunnel active and egress =301= within ~40 s of
+boot, node =Ready= within ~20 s of k3s starting.
+
+*Two failures only ever appear at boot*
+
+Both were found by rebooting, not by deploying. If a reboot misbehaves, check
+these first:
+
+1. =wireguard-proton0= failed with =Error: Nexthop has invalid gateway=. The
+   endpoint route was added before NetworkManager had configured =eno1=; the unit
+   is =Type=oneshot= so that failure is final and the node boots with **no
+   egress**. =postSetup= now retries the pin for 60 s, and =nix flake check=
+   asserts the retry is still there. If you ever see it, start the unit by hand
+   once the link is up: =systemctl start wireguard-proton0=.
+2. The node comes back =NotReady= and =k3s= logs
+   =ClientURLs:[https://10.2.0.2:2379]=. k3s auto-detected its address from the
+   default route — which is the tunnel — so etcd advertised an address no peer can
+   reach and the member never rejoined. Fixed by pinning =--node-ip= and
+   =--advertise-address= to =192.168.2.81= (NETWORK.md §7.4).
+
 The reconciler runs at =90 s= after boot and every =60 s= after that. It pins the
 endpoint route, makes the interface key match SOPS, removes stale peers, sets the
 declared peer, and probes the data path.
 
-Expected timeline:
-
-| Time | State |
-|---|---|
-| ~30 s | seed interface up, egress already works |
-| ~90 s | reconciler converges to the declared peer; egress blips ~15 s |
-| ~110 s | egress =200=, node =Ready= |
-
-Verified by rebooting the node and doing nothing. If egress is still dead after
-three minutes:
+If egress is still dead three minutes after a boot:
 
 #+begin_src sh
+systemctl status wireguard-proton0 --no-pager
+ip rule show | head -5
 systemctl list-timers --all | grep wireguard-reconcile
 journalctl -u wireguard-reconcile.service -n 20 --no-pager
 #+end_src
