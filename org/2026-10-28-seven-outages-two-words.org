@@ -1,0 +1,228 @@
+#+TITLE: Seven outages, two words
+#+DATE: 2026-10-28T20:40:00-04:00
+#+FILETAGS: homelab:wireguard:linux:routing:ops
+#+DESCRIPTION: A WireGuard tunnel that took a node off the network seven times, the wrong theories it took to explain it, and the two-word fix — kernel rule priority, not the link.
+
+On 2026-10-25 the media node went off the network seven times. Each time it came
+back only after a power-cycle, and each time the trigger was a deploy that changed
+something innocent-looking about its WireGuard tunnel.
+
+The fix turned out to be two words in a config file: =pref 32765= and
+=pref 32764=. But it took three days, a disposable virtual machine, and a
+handful of wrong theories to get there — and the honest story is more useful
+than the fix.
+
+* What it looked like
+
+The node answered ARP and nothing else. No ICMP, no TCP, no SSH from any other
+host. The link light was on, the interface was up, =wg show= reported a recent
+handshake, and the kill-switch rules were in place. Everything an operator would
+check said "fine".
+
+A power-cycle fixed it, every time, which is exactly the kind of repair that
+teaches you nothing.
+
+* The theories, in the order they were wrong
+
+=The endpoint is dead.= Plausible: Proton rotates endpoints, and the tunnel held
+a stale server. But the "old" endpoint answered fine from another host when it
+was finally tested — days later than it should have been.
+
+=It is IPv6.= The tunnel carried =::/0= while the peer had no IPv6 allowed-ips,
+so v6 packets entered the tunnel and died. Real, but a different bug: it made
+dual-stack clients slow, not dead.
+
+=It is the stale private key.= This one was real — a key that pairs with the
+wrong server still completes a handshake and then blackholes everything. It
+caused four of the seven outages, and it is why there is now a fingerprint check
+in the recovery script.
+
+Each of those was a genuine bug. None of them explained the *pattern*: the node
+stranding itself during an activation. So the pattern got its own investigation,
+and that investigation needed somewhere to fail safely.
+
+* A staging guest that fails the way production fails
+
+You cannot experiment with "does this take the media node off the network" on the
+media node. So there is now a throwaway KVM guest that mirrors the parts that
+matter:
+
+#+begin_src text
+k3s, --flannel-backend=none, kube-proxy ON   (same as production)
+Cilium v1.20.3, same image digest, tunnel/vxlan, ipam kubernetes
+two NICs: eth0 = "WAN" (NAT), eth1 = LAN on a bridge
+pod CIDR 10.52.0.0/16, service CIDR 10.53.0.0/16  (never 10.42/10.43)
+a wg-quick full tunnel (AllowedIPs 0.0.0.0/0) to a dead TEST-NET-3 endpoint
+#+end_src
+
+The dead endpoint is deliberate: it makes "the tunnel carries no traffic"
+deterministic, so any failure is a *routing* failure and not a VPN question.
+
+It reproduced: *3 strands in about 21 cold boots*. Roughly one in seven, at
+random. That rate is a trap — a run that survives proves nothing, so a clean
+result cannot be read as a fix.
+
+* Catching it in the act
+
+The turning point was instrumenting the failure instead of explaining it. A timer
+armed before the tunnel came up dumped =ip rule show= to the serial console every
+three seconds.
+
+In the healthy case:
+
+#+begin_src text
+0:     from all lookup local
+32764: from all lookup main suppress_prefixlength 0
+32765: not from all fwmark 0xca6c lookup 51820
+32766: from all lookup main
+#+end_src
+
+In the stranded case:
+
+#+begin_src text
+9:     from all fwmark 0x200/0xf00 lookup 2004     <- Cilium
+98:    from all lookup main suppress_prefixlength 0
+99:    not from all fwmark 0xca6c lookup 51820
+100:   from all lookup local
+#+end_src
+
+The interface was identical. The routes were identical. What differed was the
+*priority numbering*: in the failing case the tunnel's two rules sit at 98 and 99,
+which is *above* the =local= rule at 100 — and in the working case they sit at
+32764/32765, comfortably below =local= at 0.
+
+That is the whole failure. When the tunnel's rules outrank =local=, a packet
+addressed to the node's own LAN address is looked up in =main=, finds the
+connected /24, and is sent *out of the interface* instead of being delivered
+locally. The node stops answering its own IP. ARP still works, because ARP is
+layer 2. Nothing in the logs says anything, and =wg-quick down= cannot repair it,
+because the rules were added at the wrong priorities in the first place.
+
+* Why 98 and 99?
+
+=wg-quick= adds its rules with =ip rule add= and no explicit priority. The kernel
+then picks one, in =fib_default_rule_pref()= —
+[[https://github.com/torvalds/linux/blob/master/net/core/fib_rules.c][net/core/fib_rules.c]]:
+
+#+begin_src c
+static u32 fib_default_rule_pref(struct fib_rules_ops *ops)
+{
+	if (!list_empty(&ops->rules_list)) {
+		pos = ops->rules_list.next;
+		if (pos->next != &ops->rules_list) {
+			rule = list_entry(pos->next, struct fib_rule, list);
+			if (rule->pref)
+				return rule->pref - 1;
+			return 0;
+		}
+	}
+	return 0;
+}
+#+end_src
+
+That is: *the priority of the second rule in the list, minus one*. It is not a
+constant, and it is not "the highest unused priority" as the folklore says. What
+ends up second in the list depends on what else has numbered itself.
+
+On these nodes, Cilium installs a rule at priority 9 and the =local= rule sits at
+100. So the list the kernel sees is =[9, 100, 32766, 32767]=, the computed default
+is 99, and the tunnel's two rules land at 99 and 98 — both above =local=.
+
+When the tunnel comes up *before* Cilium has created its rule, the list is
+=[0, 32766, 32767]=, the default is 32765, and the rules land at 32765/32764 —
+below =local=, and everything works.
+
+That also explains the one-in-seven rate: it is a *boot race* between Cilium
+numbering its rules and =wg-quick= adding its own. On a node that is already
+running, it is not a race at all — it is deterministic, and a restart will strand
+it every single time:
+
+| rule variant | reachable |
+|--------------+-----------|
+| =pref 32765= / =pref 32764= | 10/10 |
+| no =pref= (=wg-quick=, and the staged module) | 0/10 |
+
+* The proof, in one guest, seconds apart
+
+Same node, same Cilium state, same table contents — only the priority differs:
+
+| step | rules | gateway |
+|------+-------+---------|
+| A | explicit =pref= | =GW-OK= |
+| B | identical rules, no =pref= → 98/99 | =GW-FAIL= |
+| C | explicit =pref= restored | =GW-OK= |
+
+That is causal, not correlational. And it disposes of the tidy explanation that
+the tunnel's rules were "added in the wrong order": they were added in exactly
+the right order, at the wrong priority, because the kernel derived it from
+somebody else's numbering.
+
+* The fix, and what the fix did not cover
+
+The tunnel now runs on =networking.wireguard= with both rules pinned:
+
+#+begin_src sh
+ip -4 rule add pref 32765 not fwmark 51820 table 51820
+ip -4 rule add pref 32764 table main suppress_prefixlength 0
+#+end_src
+
+and =nix flake check= refuses to build if those two =pref= arguments disappear,
+or if a =wg-quick= interface comes back.
+
+That is the mechanism fixed. Then the reboots found two more bugs, and neither
+could have been found by deploying to a running node:
+
+*Deploying is not booting.* =postSetup= pinned the endpoint route before
+NetworkManager had given =eno1= an address, and =ip route ... via 192.168.2.1=
+answered =Nexthop has invalid gateway=. The unit is =Type=oneshot=, so that
+failure is final: the node came back with no tunnel and no egress at all. It
+looked fine during the deploy, because the device was already configured then.
+=postSetup= now retries for 60 s and refuses to continue rather than blackholing
+the machine.
+
+*The tunnel renamed the node.* k3s derives its node address from the default
+route, and on this host the default route is the tunnel. With the tunnel now
+starting earlier, k3s called itself =10.2.0.2= and etcd advertised
+=https://10.2.0.2:2379= — an address no peer can reach, because it lives inside
+the tunnel that the peers do not share. The member never rejoined and the node sat
+=NotReady= for ten minutes. It is a genuinely funny shape: the node's identity was
+derived from the tunnel, and the tunnel's job is to carry traffic for that
+identity. =--node-ip= and =--advertise-address= are now pinned.
+
+* What I would take from this
+
+*The lock was the bug.* "Never restart the tunnel" was written down as a rule, and
+it was correct as a description of the symptom — but a rule like that hides the
+defect behind a habit. The replacement says what actually keeps the node up: those
+two =pref= arguments. The same applies to the rollback: =wg-restore.sh= repairs the
+link in place, and rolling back with =wg-quick up= would have re-created the outage
+while looking like a return to safety.
+
+*An absent metric looks exactly like a healthy one.* Earlier in this saga every
+=wireguard_*= metric had never reached Prometheus, because the textfile collector
+skipped a file that was =0600= while node-exporter ran as =nobody=. The only alert
+that ever fired was the one for the metric being missing.
+
+*An empty PromQL result is indistinguishable from an error.* The first version of
+the fix for a noisy alert used =and ... group_left=, which is not valid PromQL; it
+failed as an empty result, which looks precisely like "nothing to report". The
+control query — the same expression with the guard disabled — is what exposed it.
+
+*Boot is part of the acceptance test.* Twice now the difference between "works" and
+"works after a power cut" was a boot-ordering assumption nobody had written down.
+
+* Where it stands
+
+The tunnel is up within about forty seconds of boot, egress through it works, and
+the operation that caused seven outages is now routine:
+
+#+begin_src sh
+ssh root@192.168.2.81 systemctl restart wireguard-proton0
+#   3/3 restarts on 2026-10-28: rules at 32764/32765, gateway reachable,
+#   egress 301, fresh handshake each time
+#+end_src
+
+The recovery procedures are in runbook 14, the invariants — including the two
+=pref= values — are in =NETWORK.md=, and the staging guest that made this
+answerable is checked in so the next mystery starts with an instrument instead of a
+theory.
