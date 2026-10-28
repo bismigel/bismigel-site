@@ -1,0 +1,239 @@
+#+TITLE: Replacing the etcd node: a 2012 MacBook for a ThinkCentre
+#+DATE: 2026-10-28
+#+FILETAGS: homelab:kubernetes:etcd:nixos
+#+DESCRIPTION: Swapping the MacBook that held one third of etcd for a used mini PC, why kexec was impossible on the installer I had, and the three places that still pointed at the old node.
+
+The third etcd member of my cluster was a *MacBook Pro 13" from 2012*. It sat
+closed on a shelf, permanently on charge, doing nothing but keeping quorum. It
+worked. It also had a swollen battery, a Broadcom network card, and no way to
+recover it except walking over and opening the lid.
+
+This is the story of replacing it with a used ThinkCentre M900 Tiny, and of the
+three places that still pointed at the old machine after I thought the job was
+done.
+
+* Why bother
+
+The MacBook was not broken. That is the honest framing: nothing forced this
+change, and a migration is risk you choose. What made it worth the risk:
+
+- *Hardware age.* 2012 laptop hardware, permanently charging, is a battery
+  waiting to become a fire risk and a disk waiting to fail.
+- *A single noisy dependency.* It held etcd only, so it ran nothing useful and
+  still had to be up for every write to the cluster.
+- *No remote recovery.* Every other node can be recovered over SSH. That one
+  needed hands on it.
+
+The replacement is a ThinkCentre M900 Tiny: i5-6500T, 16 GB, a 256 GB SATA SSD,
+one Intel I219-V NIC. It is boring hardware, which is the point.
+
+* The installer that could not kexec
+
+I booted a Void live image to install NixOS. The standard tool for this is
+=nixos-anywhere=, which loads a small NixOS installer into RAM with kexec, so the
+target disk can be wiped while the running system lives in memory.
+
+It failed:
+
+#+begin_src sh
+kexec_file_load failed: Operation not permitted
+#+end_src
+
+The cause was not Secure Boot (it was off) and not lockdown (the state was
+=none=). It was =kernel.kexec_load_disabled = 1=, set by the live image, and it is
+a *one-way* switch. You cannot turn it back on, and a reboot does not help
+because the image sets it again.
+
+So the standard path was gone. The workaround: install Nix on the live system
+and run the phases =nixos-anywhere= would have run, without the kexec step.
+
+#+begin_src sh
+# the distro's nix package was broken (CXXABI mismatch), so: official tarball
+curl -sSLO https://releases.nixos.org/nix/nix-2.28.3/nix-2.28.3-x86_64-linux.tar.xz
+tar -xf nix-2.28.3-x86_64-linux.tar.xz
+./nix-2.28.3-x86_64-linux/install --no-daemon --tarball nix-2.28.3-x86_64-linux.tar.xz
+
+nixos-anywhere --phases disko,install --flake .#patola-thinkcentre \
+  --target-host root@192.168.2.11
+#+end_src
+
+Two surprises in there worth keeping:
+
+- The tarball is =xz=, and the live image had no =xz=. Repacking it as =gz= on my
+  workstation was faster than installing a compressor on a system I was about to
+  destroy.
+- =nixos-install= was not in =PATH= either. It lives in =nixos-install-tools=, so
+  =nix build nixpkgs#nixos-install-tools= plus a symlink into =/usr/local/bin=
+  was enough.
+
+* Keep the host key or re-encrypt your secrets
+
+In this lab the *host SSH key is the SOPS age identity*:
+
+#+begin_src nix
+sops.age.sshKeyPaths = [ "/etc/ssh/ssh_host_ed25519_key" ];
+#+end_src
+
+A fresh install generates a new host key, which is a new age identity, which
+means the box cannot decrypt =secrets/homelab.yaml= - so =k3s= sits in
+=activating= forever, waiting for a token file that will never appear.
+
+The log is honest about it, at least:
+
+#+begin_src text
+Waiting for file "/run/secrets/k3s_cluster_token" to be created
+#+end_src
+
+The first install taught me this the hard way. For the second install (the one
+with the final partition layout) I saved =/etc/ssh/ssh_host_ed25519_key= before
+wiping, restored it into =/mnt/etc/ssh= after =nixos-install= and before the
+reboot. The token decrypted on first boot and the node joined without me
+touching SOPS again.
+
+If you cannot preserve the key, the alternative is fine too: derive the new age
+public key with =ssh-to-age=, add it to =.sops.yaml=, run =sops updatekeys=.
+
+* The partition layout should match the others
+
+My first install used the whole 238 GB SSD as root. Three other nodes in this
+cluster use the same shape: a 1 G ESP, a *100 G root*, and the rest as a separate
+data partition. I rebuilt to match, for one reason:
+
+#+begin_quote
+A partition boundary is the only thing that stops a runaway workload from
+filling the filesystem that etcd lives on.
+#+end_quote
+
+ext4, not btrfs. NixOS generations already give me rollback, which is what
+snapshots would be bought for, while Longhorn wants ext4 or XFS under its replica
+directory and etcd fsyncs on this same disk.
+
+* Adding a member without losing quorum
+
+The cluster ran three etcd members. Adding a fourth so I could remove the
+MacBook is fine *temporarily* - four members tolerate one failure, same as
+three, but need three alive - and "temporarily" is the whole point.
+
+#+begin_src text
+1. new node joins as a server        -> 4 members (quorum 3, nothing else may go down)
+2. stop k3s on the old node          -> 3 of 4 alive, still quorate
+3. etcdctl member remove <old-id>    -> back to 3 members
+#+end_src
+
+At no point were fewer than three members available. A permanent fourth member
+would be strictly worse than three: same tolerance, higher quorum.
+
+The first join attempt timed out, and the reason is worth writing down. Every
+node's firewall allowlists the etcd and kubelet ports *by source address range*:
+
+#+begin_src nix
+iptables -I nixos-fw 1 -p tcp -m iprange --src-range 192.168.2.81-192.168.2.83 \
+  -m multiport --dports 2379,2380,10250 -j nixos-fw-accept
+#+end_src
+
+The new node was =.84=, outside that range. I had merged the widened rule but not
+deployed it, so =MemberAdd request timed out= for several minutes while every
+node looked perfectly healthy. The firewall was doing exactly what it said.
+
+* The node that refused to become a worker
+
+The MacBook was not empty. It held *Immich's library and Postgres* on
+node-local volumes. Removing it from the cluster put those pods into =Pending=,
+and that is entirely my fault: I removed a node without checking what ran on it.
+
+The fix was to rejoin it as a *worker* (role = "agent", no etcd). That produced
+the next failure, which is a nice example of how a config error hides behind a
+rollback:
+
+#+begin_src text
+Deployment to node kamatis-mbp failed, rolled back to previous generation
+#+end_src
+
+The unit had server-only flags still in it - =--flannel-backend=none=,
+=--disable traefik=, =--write-kubeconfig-mode= - and =k3s agent= rejects them.
+The rollback put it back on the *server* config, which cheerfully re-added it to
+etcd, so I briefly had four members again and had to remove it a second time.
+Agent mode keeps the kubelet and kube-proxy flags and drops the server ones.
+
+* Moving the volumes: three pins and one lie
+
+Moving Immich off the MacBook looked like "copy 1.8 GB and change a path". It
+was four separate obstacles.
+
+*First*, =kubectl scale --replicas=0= does not stop a GitOps workload. ArgoCD
+self-heal put the pods back within seconds. Copying a live Postgres data
+directory is how you get a corrupt database that looks fine until it does not, so
+the scale-down had to be a commit, and the scale-up another one.
+
+*Second*, =spec.nodeAffinity= on a PersistentVolume is *immutable*. Kubernetes
+says so plainly:
+
+#+begin_src text
+The PersistentVolume "immich-library" is invalid: nodeAffinity: Invalid value:
+field is immutable
+#+end_src
+
+So the PV has to be deleted and recreated. With =persistentVolumeReclaimPolicy:
+Retain= the data on disk is untouched; only the object goes.
+
+*Third*, the node name was pinned in three different places:
+
+#+begin_src text
+PersistentVolume.spec.nodeAffinity       -> values: [kamatis-mbp]
+Pod.spec.nodeSelector  (redis, server)   -> kubernetes.io/hostname: kamatis-mbp
+StatefulSet.spec.template.nodeSelector   -> kubernetes.io/hostname: kamatis-mbp
+#+end_src
+
+I fixed two of them and wondered why pods still sat at =0/4 nodes are available:
+1 node(s) didn't match PersistentVolume's node affinity, 3 node(s) didn't match
+Pod's node affinity/selector=. That error message is actually excellent - it
+tells you both sides disagree.
+
+*Fourth*, a StatefulSet does not recreate its pod when only the template changes.
+The corrected selector did nothing until I deleted =immich-postgres-0= and let
+the controller rebuild it.
+
+After all that: 490 assets in Postgres, 1562 files in the library, and the same
+files byte-for-byte on the new node, verified before the switch with
+=tar --compare= over an SSH stream.
+
+* What the older monitors got wrong
+
+Two checks hard-coded the old topology and started failing on a healthy cluster:
+
+#+begin_src text
+smoke test:        [ "$ready" = "3" ]              -> now: -ge 3
+smoke test:        grep "Cluster health:.*3/3"     -> now: parses N/N
+docs-verify:       expected="<3 nodes>"            -> now: 4 nodes
+docs-verify:       agents -eq 3                    -> now: agents == node count
+#+end_src
+
+Both were fine when written. Both became lies the moment the cluster grew, and
+the failure mode was worse than no check at all: a permanent =SmokeTestFailed=
+on a perfectly healthy lab teaches you to ignore the alert.
+
+* Where it ended up
+
+#+begin_src text
+nodes   4 ready: .81 media, .82 platform, .84 ThinkCentre (etcd), .83 MacBook (worker)
+etcd    3 members, leader on .81, ~10 ms commit
+apps    31/31 synced and healthy
+#+end_src
+
+The MacBook still exists. It runs nothing but the DaemonSets, and it will stay
+until I decide whether it becomes the staging host or gets switched off for good.
+
+* What I actually learned
+
+- *Check what a node carries before removing it.* Node-local volumes are
+  invisible until the pods go Pending. That one was avoidable and cost an
+  afternoon.
+- *A rollback can undo your intent.* The failed agent deploy restored the server
+  config, which rejoined etcd - the opposite of what I asked for. Read what the
+  tool did, not what it was supposed to do.
+- *Hard-coded counts in monitors are technical debt with a firing alert.*
+- *Preserving the host key is cheaper than re-encrypting secrets.* One =scp=
+  before the install saved a SOPS round trip.
+- *Live images are not all the same.* =kexec_load_disabled= is a legitimate
+  security default that removes the standard install path, and nothing warns you
+  until you try.
