@@ -6,7 +6,7 @@
 | Field      | Value                                                                 |
 |------------+-----------------------------------------------------------------------|
 | Document   | Bakuran operations runbook                                            |
-| Version    | *2026-10-26*                                                          |
+| Version    | *2026-10-29*                                                          |
 | Audience   | Future me, and the agent that helps run the lab                       |
 | Companion  | [[https://bismigel.dev/projects/bakuran-homelab/][The Bakuran homelab: technical reference]]                           |
 | Access     | Cloudflare Access (runbook.bismigel.dev)                              |
@@ -38,6 +38,7 @@ Pick a task from the list below, or start with *Before you start*.
 | Recover WireGuard and keep it recovered             | 14   |
 | Look up what an alert means and how to fix it       | 15   |
 | Change a field Kubernetes will not let you change   | 16   |
+| Delete something that is protected                  | 17   |
 
 Pages 11, 12 and 14 overlap on purpose and are read together: 11 triages the
 symptom, 12 is the pre-flight that stops it happening, 14 is the recovery when it
