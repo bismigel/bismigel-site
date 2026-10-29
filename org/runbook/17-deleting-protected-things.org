@@ -1,0 +1,138 @@
+#+TITLE: Deleting something that is protected
+#+SUMMARY: Why PVCs, PVs and Namespaces refuse to be deleted, the break-glass that lets one through, and the order that matters when a teardown is genuine.
+#+GROUP: Recovery
+
+Since 2026-10-29 the API server refuses to delete *data* without a second,
+deliberate action. That is not a malfunction — it is the answer to an evening when
+a =kubectl delete pvc --all= aimed at staging's =books= namespace hit production's
+identically-named namespace and destroyed three config volumes.
+
+* What is protected, and by what
+
+A =ValidatingAdmissionPolicy= named =protect-stateful-objects= (in
+=bakuran-gitops/manifests/base/guardrails/=) denies =DELETE= on:
+
+| Object | Why |
+|--------+-----|
+| =persistentvolumeclaim= | the claim *is* the data: a database, a library, a config volume |
+| =persistentvolume= | deleting it directly skips the claim and the reclaim policy |
+| =namespace= | a namespace delete cascades to every PVC inside it, so exempting one would leave the hole open |
+
+The denial looks like this:
+
+#+begin_src text
+Error from server (Forbidden): persistentvolumeclaims "kavita-config" is forbidden:
+ValidatingAdmissionPolicy 'protect-stateful-objects' with binding
+'protect-stateful-objects' denied request: Deleting a PersistentVolumeClaim,
+PersistentVolume or Namespace requires the annotation
+bakuran.dev/allow-delete="true" on the object.
+#+end_src
+
+Nothing is wrong. You are being asked a second time.
+
+* Before you break the glass
+
+Answer these first. If any answer is "no" or "I am not sure", stop.
+
+1. *Is the data replaceable?* A rebuildable cache is fine. A library, a database or
+   a reading history is not.
+2. *Does a backup exist, and have you seen it restore?* Not "the backup ran" — the
+   restore verifier proves it:
+   #+begin_src sh
+   systemctl start homelab-backup-verify
+   journalctl -u homelab-backup-verify -n 20 --no-pager | tail -5
+   #+end_src
+   =restore verification ok= means the newest archive decrypts and its SQLite
+   databases pass =integrity_check=. Anything else means do not delete.
+3. *Are you in the right cluster?* This is the one that bit. The same namespace
+   name exists on production (=.80/.81/.82=) and on staging (=.83=, a KVM guest):
+   #+begin_src sh
+   kubectl config current-context          # or: ssh root@192.168.2.82 'kubectl ...'
+   kubectl -n books get pods -o wide | head
+   #+end_src
+   Production pods run on =calamansi-intel=; staging pods run on a guest named
+   =server=, =server2= or =server3=. If that line does not say what you expect,
+   stop.
+
+* The break-glass
+
+One object at a time, by name. Never =-all=, never a wildcard: the whole point of
+the annotation is that it cannot be applied to a set by accident.
+
+#+begin_src sh
+# 1. name the object explicitly
+kubectl -n books get pvc
+
+# 2. annotate exactly one
+kubectl -n books annotate pvc kavita-config bakuran.dev/allow-delete=true
+
+# 3. delete it (add --dry-run=server first if you want to see it succeed)
+kubectl -n books delete pvc kavita-config
+
+# 4. the annotation went with the object; if the PVC is recreated by git, the new
+#    one is protected again automatically
+kubectl -n books get pvc
+#+end_src
+
+For a *namespace*, same shape — but read the next section first, because a
+namespace teardown has an order.
+
+* The order of a genuine teardown
+
+A namespace delete takes everything with it, including the ArgoCD Application that
+would rebuild it. So the order is: remove the source of truth, then the objects.
+
+#+begin_src text
+1. delete the Application in git  (clusters/prod/apps/... or clusters/staging/apps/...)
+   → merge the PR. ArgoCD prunes what it manages, and nothing recreates it.
+2. wait for the app to disappear: kubectl -n argocd get applications
+3. annotate the namespace, then delete it
+4. verify: kubectl get ns <name>  → NotFound
+           kubectl -n longhorn-system get volumes.longhorn.io | grep <name>  → gone
+#+end_src
+
+Doing it the other way round (namespace first) leaves an Application pointing at a
+namespace that no longer exists: ArgoCD recreates the namespace, then the workloads,
+and you have a half-built environment to debug at midnight.
+
+* If the guardrail itself is in the way
+
+It is a cluster object, so it can be *downgraded* for a window rather than removed.
+=Warn= logs the same denial without blocking:
+
+#+begin_src sh
+kubectl patch validatingadmissionpolicybinding protect-stateful-objects \
+  --type merge -p '{"spec":{"validationActions":["Warn"]}}'
+# ... do the work ...
+kubectl patch validatingadmissionpolicybinding protect-stateful-objects \
+  --type merge -p '{"spec":{"validationActions":["Deny"]}}'
+#+end_src
+
+But note what you are doing: the file in git still says =Deny=, so the next ArgoCD
+sync of the =guardrails= app restores it. If a downgrade is regularly needed, the
+policy is wrong — fix the policy, not the habit.
+
+* After the deletion
+
+1. *Did the PV go too?* A PVC delete removes its PV (and the Longhorn volume) when
+   the reclaim policy is =Delete=. If you wanted to keep the volume, that decision
+   had to happen before.
+2. *Is the backup still intact?* Deleting a PVC never touches R2, but confirm the
+   newest archive is the one you expect:
+   #+begin_src sh
+   systemctl show homelab-backup-apps -p Result -p ExecMainExitTimestamp --value
+   #+end_src
+3. *Does the app recover?* If it is meant to come back, let ArgoCD recreate it and
+   then check the Application's health, not just the pods:
+   #+begin_src sh
+   kubectl -n argocd get application <name> -o jsonpath='{.status.sync.status}/{.status.health.status}'
+   #+end_src
+
+* What this policy does not cover
+
+- *It does not stop a bad =kubectl apply=.* Editing a manifest wrongly is what
+  Closes the loop for *field* changes: runbook [[file:16-immutable-fields.org][16]].
+- *It does not stop deleting the wrong object with the right name* — a deployment,
+  a configmap, an ingress. Those are cheap to recreate from git; data is not.
+- *It protects data three ways* (claim, volume, namespace), and that is the whole
+  scope. Anything with a =reclaimPolicy: Retain= is still your responsibility.
