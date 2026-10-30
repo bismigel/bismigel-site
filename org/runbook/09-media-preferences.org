@@ -7,10 +7,10 @@ change, never two at once.
 
 | You want to change | Owner | Where |
 |--------------------+-------+-------|
-| which qualities may be downloaded | recyclarr | =bakuran-gitops/manifests/media/recyclarr.yaml= |
+| which qualities may be downloaded | recyclarr | =bakuran-gitops/manifests/base/media/recyclarr.yaml= |
 | how large a quality may be (MB/min) | OpenTofu | =bakuran-infra/opentofu/media/quality_definitions.tf= |
 | root folders, notifications | OpenTofu | same module |
-| deployment, PVC, ingress, network policy | ArgoCD | =bakuran-gitops/manifests/media/= |
+| deployment, PVC, ingress, network policy | ArgoCD | =bakuran-gitops/manifests/base/media/= |
 
 * Change a quality profile (recyclarr)
 

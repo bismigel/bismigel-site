@@ -26,5 +26,7 @@ logins look wrong, check `kubectl -n monitoring logs job/immich-login-watch-*`.
 
 - **It is public.** With signup on, anyone who finds the hostname can create an
   account. Off is not optional.
-- **Sessions/backups:** the Postgres DB and photo library live on `etcd`'s
-  `/mnt/data/immich` and are included in the R2 backup.
+- **Sessions/backups:** the Postgres DB and photo library are Longhorn volumes on
+  `etcd`'s node and are included in the R2 backup. They were on `/mnt/data/immich`
+  until 2026-10-28, when `.83` stopped being a cluster member; a reference to
+  `/mnt/data` is pre-that-date.

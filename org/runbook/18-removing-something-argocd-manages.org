@@ -1,0 +1,66 @@
+#+TITLE: Removing something ArgoCD manages
+#+SUMMARY: What a prune actually deletes (less than you think), why the leftovers keep running, and the order that leaves nothing behind.
+#+GROUP: Platform
+
+Deleting an Application is a *three-part* operation and ArgoCD only does one of
+them. On 2026-10-30 an Application was removed from git with a clean sync, the
+Application object disappeared, and the workload it had been running kept serving
+traffic in a namespace the project no longer allowed.
+
+* What a prune does and does not do
+
+| Step | Who does it | Result if you assume it is automatic |
+|------+------------+--------------------------------------|
+| Delete the `Application` object | root's sync (`prune: true`) | happens |
+| Delete the resources it *tracked* | only with a cascade delete | **often not** |
+| Delete the namespace it created | nobody | stays, empty |
+
+The middle row is the trap. `syncOptions: CreateNamespace=true` creates a namespace
+without making it a managed resource, and a resource is only pruned if ArgoCD can
+attribute it to that Application — via the tracking label or annotation. If an
+object was created by something else (a hand `kubectl apply`, a controller, an older
+tracking method), it survives the prune **and** the finalizer, because there is
+nothing for the finalizer to cascade to.
+
+* The procedure
+
+1. **Record what it owns before you delete anything.**
+   #+begin_src sh
+   kubectl -n argocd get application <app> -o jsonpath='{range .status.resources[*]}{.kind}/{.namespace}/{.name}{"\n"}{end}'
+   #+end_src
+   That list is what you are responsible for. Write it down.
+2. **Remove the Application from git** (the file under `clusters/prod/apps/`), in a
+   PR, and merge. Do not `kubectl delete application` — the repository is the
+   source of truth for *existence*, and a hand delete is undone by self-heal.
+3. **Wait for the sync, then check the list again.**
+   #+begin_src sh
+   kubectl -n argocd get application <app>            # expect: NotFound
+   kubectl -n <namespace> get all,cm,secret,ingress  # expect: only kube-root-ca.crt
+   #+end_src
+4. **Delete the leftovers explicitly**, if the intent was to remove them. A
+   `Deployment` or `Service` is safe to delete; a `PersistentVolumeClaim` or
+   `Namespace` is now refused by `protect-stateful-objects` (runbook 17) — which is
+   the correct moment to stop and ask whether the data should go too.
+5. **Drop the namespace from the AppProject** in the same change as the
+   Application, in `clusters/prod/projects/projects.yaml`. Otherwise the project
+   keeps granting write access to a namespace nothing legitimately uses, which is
+   exactly the blast radius the project exists to bound.
+
+* The one case that is not a prune
+
+`status-api-staging` (removed 2026-10-30) was a *staging* overlay deployed into
+*production* — an artefact of the period before each cluster had its own root. The
+replacement is not another Application: it is staging's own cluster, running the
+same overlay through `clusters/staging/`. If you find yourself adding an Application
+whose name contains an environment that is not the cluster's, stop.
+
+* Gotchas
+
+- **A prune is not a rollback.** It removes *declarations*, not history. Pods
+  terminate; PVCs and their data stay unless someone deletes them.
+- **Check the project, not just the app.** Deleting an Application leaves its
+  namespace in the AppProject's destination list, so the boundary silently stays
+  wider than the workloads need.
+- **`ignoreDifferences` on finalizers is not a licence.** `root` ignores
+  `/metadata/finalizers` on `Application` objects so a child's pre-delete finalizer
+  cannot make the app-of-apps loop; it does not make cascade deletion happen.

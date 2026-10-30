@@ -1,0 +1,70 @@
+#+TITLE: The API VIP answers from two nodes
+#+SUMMARY: Why kube-vip can strand its address, how to tell in ten seconds, and the guard that releases it.
+#+GROUP: Recovery
+
+Two nodes answering ARP for `192.168.2.100` does not look like a duplicate VIP. It
+looks like the API being flaky: `kubectl` works, then times out, then works; ArgoCD
+syncs, then reports transport errors; nothing in the logs names an address.
+
+* Why it happens
+
+kube-vip holds the API address via a lease. When the leader-election client cannot
+renew — most often because the node holding the VIP also lost the etcd leadership,
+so API writes stalled — kube-vip **exits (255)**, and `manager.go` calls `sm.Kill()`
+on the way out. That bypasses the deferred `Cleanup()` that would have released the
+address, so the VIP stays on that host's interface while another node legitimately
+acquires the same address.
+
+* Ten-second diagnosis
+
+Ask every control-plane node at once. Exactly one should answer `1`.
+
+#+begin_src sh
+for n in <etcd> <media> <platform>; do
+  printf '%s %s\n' "$n" "$(ssh root@$n "ip -4 -o addr show | grep -c 192.168.2.100/")"
+done
+kubectl -n kube-system get lease plndr-cp-lock -o jsonpath='{.spec.holderIdentity}'; echo
+#+end_src
+
+The node reporting `1` must be the one the lease names. If a second node reports `1`,
+that node has the orphan.
+
+* The fix, in order
+
+1. **Let the guard do it.** Since 2026-10-29 kube-vip runs an `orphan-guard` sidecar:
+   if this node still has the VIP and **no kube-vip process is running here**, it
+   deletes the address after three consecutive 3 s checks and logs
+   =orphan-guard: no kube-vip process here; removing orphaned …=. Give it ten
+   seconds before touching anything.
+2. **If the guard is not there** (older rollout), delete the address on the orphaned
+   node by hand — it is not the leader, so nothing is lost:
+   #+begin_src sh
+   ssh root@<orphan> "ip -4 -o addr show | grep 192.168.2.100"   # note the CIDR
+   ssh root@<orphan> "ip addr del 192.168.2.100/32 dev <iface>"
+   #+end_src
+3. **Confirm one holder and a live API:**
+   #+begin_src sh
+   for n in <etcd> <media> <platform>; do
+     printf '%s %s\n' "$n" "$(ssh root@$n "ip -4 -o addr show | grep -c 192.168.2.100/")"
+   done
+   curl -sk -o /dev/null -w '%{http_code}\n' https://192.168.2.100:6443/   # 401
+   #+end_src
+
+* Why the lease is 15/10/2
+
+The trigger was the lease being short: `5s/3s/1s` let a stalled API consume the whole
+renewal window, so kube-vip exited instead of waiting. `15s/10s/2s` costs a deliberate
+takeover up to ~15 s and removed the failure we could reproduce. The guard covers
+every *other* exit path — an OOM kill, a node power loss — where the lease settings
+cannot help.
+
+* Gotchas
+
+- **Do not "restart kube-vip" on the leader to fix this.** It moves the VIP as a side
+  effect and produces exactly the window you are trying to close.
+- **The guard reads no API.** It deliberately does not consult the lease: inside a
+  `hostNetwork` pod the cluster DNS name does not resolve, and the image cannot verify
+  the cluster CA. It looks at `/proc` for the kube-vip process instead — the presence
+  of the process *is* the claim on the address.
+- **In staging, the same guard runs with staging's own VIP.** If staging ever shows
+  the symptom, the address is `10.10.50.100` and the guests are the three nodes.

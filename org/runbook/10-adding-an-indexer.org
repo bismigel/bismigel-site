@@ -134,7 +134,7 @@ outside and are worth separating every time.
 
 | Indexer | Verdict |
 |---------+---------|
-| AudioBookBay | definition *now ships* in gitops (=manifests/media/prowlarr-definitions.yaml=, custom Cardigann) and returns rows — but the site blackholes our egress, so searches time out. See page 13. |
+| AudioBookBay | definition *now ships* in gitops (=manifests/base/media/prowlarr-definitions.yaml=, custom Cardigann) and returns rows — but the site blackholes our egress, so searches time out. See page 13. |
 | EBookBay | definition exists, but every search: =all selected indexers unavailable= (blocks our egress) |
 | AudioNews / ProAudioTorrents | private, need an account |
 
