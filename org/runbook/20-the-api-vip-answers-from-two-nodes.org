@@ -68,3 +68,41 @@ cannot help.
   of the process *is* the claim on the address.
 - **In staging, the same guard runs with staging's own VIP.** If staging ever shows
   the symptom, the address is `10.10.50.100` and the guests are the three nodes.
+
+* The other failure mode: a *follower's* stale ARP
+
+The guard above fixes "a node holds the address when it should not". The mirror case is
+quieter and was found on 2026-10-30: **a node that never held the address keeps pointing
+at the wrong holder.**
+
+When the lease moved from `sitaw-amd` to `calamansi-intel`, the third node kept an ARP
+entry mapping the VIP to the *old* holder's MAC. Its packets went to a node that no
+longer answered, so `cilium` on that node could not reach the API
+(`Kubernetes: Failure … TLS handshake timeout`), so it never programmed endpoints for
+its own pods, so **every cross-node connection to that node timed out**. The symptom was
+a CronJob failing every minute — not anything network-shaped.
+
+Diagnose it by comparing MACs, not by pinging:
+
+#+begin_src sh
+ssh root@<node> "ip neigh show 192.168.2.100"      # lladdr should be the holder's
+ssh root@<holder> "ip -br link show <iface>"        # its real MAC
+#+end_src
+
+Fix:
+
+#+begin_src sh
+ssh root@<node> "ip neigh del 192.168.2.100 dev <iface>"
+sleep 2; ssh root@<node> "ip neigh show 192.168.2.100"   # re-resolves to the holder
+#+end_src
+
+Cilium recovers on its own within a minute; verify with
+`kubectl -n kube-system exec <agent> -- cilium-dbg status | grep ^Kubernetes`.
+
+* Gotcha: test connectivity from a namespace that is *allowed* to make the connection
+
+My first probe said "all cross-node traffic is broken" and that was **wrong**: the test
+pod ran in `default`, which carries a `default-deny-egress` policy, so it could reach
+nothing — including the VIP — by design. Retest from the namespace the failing workload
+actually runs in (`monitoring` here). A policy denial and a datapath fault look
+identical from inside an unrouted pod.
