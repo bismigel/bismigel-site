@@ -1,9 +1,10 @@
 #+TITLE: Building this blog with Org mode, Pandoc, Hugo and GitOps
 #+DATE: 2026-10-02
-#+FILETAGS: hugo:emacs:ci
+#+FILETAGS: homelab:hugo:emacs:ci
+#+DESCRIPTION: Org is the source, pandoc renders it, Hugo builds it, a GitHub Action ships the image and ArgoCD deploys it.
 
 #+begin_quote
-*Building the lab: Part 2 of 8.* ← [[file:2026-09-15-homelab-design.org][The design of the homelab]]
+*Building the lab.* ← [[file:2026-09-15-homelab-design.org][Designing a self-hosted homelab on three old computers]]
 Next: [[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext]]
 #+end_quote
 
@@ -19,7 +20,8 @@ Every post is just a file, named like =org/this-file=. This post starts like thi
 #+begin_src org
 #+TITLE: How this site is built
 #+DATE: 2026-10-02
-#+FILETAGS: hugo:emacs:ci
+#+FILETAGS: homelab:hugo:emacs:ci
+#+DESCRIPTION: Org is the source, pandoc renders it, Hugo builds it, a GitHub Action ships the image and ArgoCD deploys it.
 
 Body text in Org.
 #+end_src
@@ -59,6 +61,17 @@ ArgoCD watches =main=, sees the manifest commit and syncs the Deployment. The
 workflow has =contents: write= and =packages: write=, and no kubeconfig. Its only
 path into the cluster is one image tag in git. A human gate would be a one-line
 change: remove the =gh pr merge= step and require review on the tag PR.
+
+#+begin_src mermaid
+flowchart LR
+  src["org/*.org<br/>the only source"] -->|pandoc| md["content/**/index.md<br/>generated, git-ignored"]
+  md -->|hugo| pub["public/"]
+  pub --> img["nginx image<br/>main-TIMESTAMP-SHA"]
+  img --> reg[("GHCR")]
+  reg -->|workflow bumps the tag and opens a PR| git["git"]
+  git -->|ArgoCD sync| k8s["cluster"]
+  k8s --> cf["Cloudflare edge<br/>Access in front"]
+#+end_src
 
 * Four jobs, four tools
 

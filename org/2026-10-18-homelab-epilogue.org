@@ -5,34 +5,24 @@
 #+DESCRIPTION: What I checked before pointing real domains at the lab and before making the cluster repos public: what is exposed, what the fear changed, and what still is not finished.
 
 #+begin_quote
-*Building the lab: epilogue.* (Not part of the numbered series.)
+*Building the lab: epilogue.*
 ← [[file:2026-10-18-observability-is-the-part-im-good-at.org][Homelab observability: Prometheus, Grafana and five focused dashboards]] ·
-[[file:2026-10-18-the-tunnel-isnt-a-fire-hose.org][Why a Cloudflare Tunnel is not a fire hose for Jellyfin]]
+[[file:2026-10-17-two-tunnels-are-better-than-one.org][Cloudflare Tunnel HA, and what the tunnel is not for]]
 #+end_quote
 
-The lab is not public yet. I keep saying that, as if it makes the nervousness smaller.
 The site is public. The workstation config is public. The cluster repos are still
-private, and I am planning to change that soon.
+private, and I am planning to change that.
 
-There is a difference between showing the output and showing the machine. The site is
-the output. The repos are the machine: the hosts, the manifests, the decisions and the
-mistakes. Publishing them feels bigger than publishing a post, because a post is a
-story I chose to tell. A repo is the whole working surface.
+There is a difference between showing the output and showing the machine. A post is a
+story I chose to tell. A repo is the hosts, the manifests, the decisions and the
+mistakes — the whole working surface.
 
-This is the part after the numbered series. Part 8 ended with the lab watching itself.
-This part is about deciding what to show, and what to keep.
+* What is actually exposed
 
-* The first public hostname
-
-The first time I pointed a real domain at a service in my house, it felt wrong. Nothing
-was listening on the router. The tunnel dials out. That helped me understand the risk.
-It did not make me calm.
-
-A tunnel removes an open port. It does not remove the service. Anyone with the hostname
-can reach the login page. The lock is authentication, not the fact that the machine sits
-in my spare room.
-
-Here is the shape of the edge today:
+The first time I pointed a real domain at a service in my house it felt wrong. Nothing
+was listening on the router; the tunnel dials out. A tunnel removes an open port, not the
+service. Anyone with the hostname reaches the login page, and the lock is authentication,
+not the fact that the machine sits in my spare room.
 
 #+begin_src mermaid
 flowchart LR
@@ -43,13 +33,10 @@ flowchart LR
   I --> A["Access-gated<br/>ArgoCD, Grafana, Prometheus, media UIs"]
 #+end_src
 
-The tunnel has two connectors. That was Part 7. One connector can die and the edge still
-answers. I did not add the second one because it was fun. I added it because one machine
-had become a single point of failure for everything public.
+The two connectors are from Part 7. I did not add the second because it was fun; one
+machine had become a single point of failure for everything public.
 
-* What is actually exposed
-
-The word "public" gets used too loosely. Not everything is in the same bucket:
+"Public" gets used too loosely. Not everything is in the same bucket:
 
 | Surface | Who can reach it | What stops them |
 |---------+------------------+-----------------|
@@ -60,41 +47,38 @@ The word "public" gets used too loosely. Not everything is in the same bucket:
 Public does not mean anonymous. The media apps still ask for a password. The difference
 is that Cloudflare Access is not in front of them, so the app login is the only gate.
 
-Kavita is public because the mobile app cannot complete the Access login flow. That is a
-trade-off I made on purpose, not an accident. It is also the first gap I would close if I
-had to pick one.
+Kavita is public because its mobile app cannot complete the Access login flow. That is a
+trade-off I made on purpose, and it is the first gap I would close if I had to pick one.
 
 * The fear became instrumentation
 
-I did not become less nervous. I became nervous about specific things. That is an
-improvement, because a specific fear can become a check.
+I did not become less nervous. I became nervous about specific things, and a specific
+fear can become a check.
 
 - The agent has read-only Kubernetes access and a Cloudflare proxy that only allows GET
-  requests. Its curiosity cannot become a change. The write-capable Cloudflare token
+  requests, so its curiosity cannot become a change. The write-capable Cloudflare token
   stays on the host, for the edge sync script.
-- The edge is monitored from the outside as well as the inside. Tunnel status, connector
-  count, zone state, certificate state and snapshot age all have alerts.
+- The edge is monitored from outside as well as inside. Tunnel status, connector count,
+  zone state, certificate state and snapshot age all have alerts.
 - A dead-man's switch runs on the workstation outside the cluster. Every other monitor
-  lives inside the lab. If the lab is down, the monitor is down, and silence looks like
+  lives inside the lab, so if the lab is down the monitor is down and silence looks like
   health. The outside timer is the exception.
 - The backups fail loudly, and a weekly job restores the newest archive and checks the
   databases inside it. A backup I have not restored is a hope, not a measurement.
-- The cluster runs with least privilege where it is easy: kube-state-metrics cannot read
-  Secrets, and images are pinned by version or digest.
+- Least privilege where it is easy: kube-state-metrics cannot read Secrets, and images
+  are pinned by version or digest.
 - Changes go through pull requests. The cluster self-heals, and an app that drifts for
   fifteen minutes sends an alert.
 
-None of this makes the lab unhackable. It makes a failure smaller and louder. That is
-the goal.
-
-The agent is a separate story. I wrote about what it does, how it is set up and where
-the guardrails are: [[file:2026-10-18-hermes-homelab-sre-agent.org][Hermes as a homelab SRE]].
+None of this makes the lab unhackable. It makes a failure smaller and louder, which is
+the goal. The agent is its own story:
+[[file:2026-10-16-deepseek-writes-the-boring-parts.org][AI in the lab]].
 
 * Publishing the repo is another kind of exposure
 
-A repo is not just the files in the working tree. It is the history, branches, tags,
-issues, pull requests, Actions logs, artifacts, releases, and sometimes the wiki. When
-the switch flips, all of it becomes public at once.
+A repo is not the working tree. It is the history, branches, tags, issues, pull requests,
+Actions logs, artifacts, releases, and sometimes the wiki. When the switch flips, all of
+it becomes public at once.
 
 #+begin_src mermaid
 flowchart LR
@@ -107,65 +91,60 @@ flowchart LR
   B --> P["Public repo"]
 #+end_src
 
-Here is the checklist I am working through. I am not publishing today.
+The checklist I am working through. I am not publishing today.
 
-1. **Inventory the surface.** List the files, then list everything the files do not show:
-   branches, tags, open pull requests, issues, Actions logs, artifacts and releases. The
+1. **Inventory the surface.** List the files, then everything the files do not show:
+   branches, tags, open pull requests, issues, Actions logs, artifacts, releases. The
    working tree is the smallest part of the job.
-2. **Scan the tree and the history.** Use a tool like gitleaks or trufflehog for tokens,
-   private keys, passwords and connection strings. Turn on GitHub secret scanning and
-   push protection, which are free for public repositories. If something did land,
-   rotate it first. A history rewrite does not reach forks, caches or screenshots.
-3. **Remove personal and network details.** Names, email addresses, family usernames,
-   LAN addresses, account IDs, zone IDs, tunnel IDs, hostnames, screenshots and logs can
-   all identify a person or a network. The technical reference keeps roles and paths,
-   not addresses. I want a map, not a key.
+2. **Scan the tree and the history.** gitleaks or trufflehog for tokens, private keys,
+   passwords and connection strings. Turn on GitHub secret scanning and push protection,
+   which are free for public repositories. If something did land, rotate it first: a
+   history rewrite does not reach forks, caches or screenshots.
+3. **Remove personal and network details.** Names, email addresses, family usernames, LAN
+   addresses, account IDs, zone IDs, tunnel IDs, hostnames, screenshots and logs all
+   identify a person or a network. The technical reference keeps roles and paths, not
+   addresses. I want a map, not a key.
 4. **Check the security posture.** Tunnel-only access, Access on admin surfaces, app
-   login on public apps, least-privilege RBAC, pinned images, weekly image scans and
-   pull-request-only changes. A public repo should describe these controls accurately,
+   login on public apps, least-privilege RBAC, pinned images, weekly image scans,
+   pull-request-only changes. A public repo should describe those controls accurately,
    not claim more than they do.
-5. **Add repo hygiene.** A README that says what the repo is and what it is not. A
-   license. A SECURITY.md with a contact path. A plain statement that these manifests
-   are specific to this hardware, this network and this Cloudflare account. It is not a
-   turnkey product.
-6. **Turn on the controls that private repos could not have.** Public repos get branch
+5. **Add repo hygiene.** A README that says what the repo is and is not, a license, a
+   SECURITY.md with a contact path, and a plain statement that these manifests are
+   specific to this hardware, network and Cloudflare account. It is not a turnkey
+   product.
+6. **Turn on the controls private repos could not have.** Public repos get branch
    protection and secret scanning on the free plan. The pre-push hook on the workstation
    was a workaround for private repos; public removes the excuse.
-7. **Decide what stays private.** Not every repo should be public. Operator notes,
-   credential archives and anything that describes a live weakness can stay private.
-   The map can be public. The keys cannot.
+7. **Decide what stays private.** Operator notes, credential archives and anything that
+   describes a live weakness. The map can be public. The keys cannot.
 
 * Is it enough?
 
-No. The honest list of gaps is still longer than I would like:
+No. The gap list is still longer than I would like:
 
-- I have not done a full disaster-recovery rehearsal. I have restored backups and checked
-  them, but I have not rebuilt a host from nothing and timed it.
-- I have not paid for a penetration test. I have tested the lab myself, so I know its
-  weak spots.
+- No full disaster-recovery rehearsal. I have restored backups and checked them, but I
+  have not rebuilt a host from nothing and timed it.
+- No penetration test. I have tested the lab myself, so I know its weak spots.
 - Kavita is public and protected by a password only. That is the weakest login surface.
 - The free Cloudflare plan has no custom rate limiting. Access and app logins do most of
   the work.
-- There is no image signing or SBOM yet.
-- The private cluster repos still cannot enforce branch protection on the free plan. That
-  is one reason the public move matters: it makes the controls real instead of
-  approximate.
+- No image signing or SBOM yet.
+- The private cluster repos cannot enforce branch protection on the free plan. That is
+  one reason the public move matters: it makes the controls real instead of approximate.
 - The public-repo audit is not finished. I am still walking the checklist.
 
-The lab is in a better state than when it started. That is not the same as finished. Two
-boxes became three. One connector became two. One dashboard became five. A backup I hoped
-in became a backup I test. Secrets moved out of git. Hand edits became pull requests.
-
+The lab is in a better state than when it started. Two boxes became three, one connector
+became two, one dashboard became five, a backup I hoped in became a backup I test, secrets
+moved out of git, and hand edits became pull requests. That is not the same as finished.
 Enough is a direction, not a finish line.
 
 * What I would tell you
 
-If you are about to expose a service, start with what is actually reachable, not with
-what you are afraid of. Then make the failure small and loud. Then show your work.
+If you are about to expose a service, start with what is actually reachable, not with what
+you are afraid of. Then make the failure small and loud. Then show your work.
 
-I am still nervous about the internet seeing the lab and about publishing the machine
-behind it. The difference is that the nervousness has a list now. The list is finite. I
-can work through it.
+I am still nervous about the internet seeing the lab, and about publishing the machine
+behind it. The difference is that the nervousness has a list now, and the list is finite.
 
 The detailed map is already public in the [[https://bismigel.dev/projects/bakuran-homelab/][technical reference]]. The repos are the next
 step. When they go public, I will link them there.

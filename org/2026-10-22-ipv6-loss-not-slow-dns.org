@@ -1,7 +1,7 @@
 #+TITLE: IPv6 packet loss, not slow DNS: why Jellyfin buffered off the LAN
 #+DATE: 2026-10-22T22:15:00-04:00
 #+FILETAGS: homelab:ipv6:cloudflare:jellyfin:network
-#+DESCRIPTION: A Jellyfin buffering report that looked like slow DNS turned out to be intermittent IPv6 packet loss to the Cloudflare edge. How the measurement found it, why it cost 8x of video bitrate, the server bitrate cap hiding underneath it, and what actually limits the lab now.
+#+DESCRIPTION: A buffering report that looked like slow DNS was intermittent IPv6 loss to the edge: six runs to find it, 8x of bitrate lost, and a server cap hiding underneath.
 
 Buffering from outside the LAN is the kind of report that invites guessing. The
 usual suspects are the transcode, the disk, or the network. This time the
@@ -104,18 +104,17 @@ alive.
 
 * The shape of the path
 
-#+begin_src text
-  dual-stack client
-        |
-        |  1. DNS: A and AAAA, both answered (proxied CNAME to the tunnel)
-        v
-  Cloudflare anycast     172.64.80.1        /  2606:4700:130:436c:...
-        |                      |                        |
-        |  2. client prefers AAAA  ->  loss here -> 1 s connect, 5 s DNS retry
-        |                      |                        |
-        |  3. tunnel connector (cloudflared on .81 and .82, IPv4/QUIC)
-        v
-  ingress-nginx :32080  ->  Jellyfin pod on .81  ->  /mnt/media
+#+begin_src mermaid
+flowchart TB
+  client["dual-stack client<br/>prefers AAAA"] --> dns["DNS: A and AAAA both answered<br/>proxied CNAME to the tunnel"]
+  dns --> lossy["AAAA path<br/>IPv6 loss: 1 s connect, 5 s DNS retry"]
+  dns --> clean["A path<br/>20 ms connect, every time"]
+  lossy --> edge["Cloudflare anycast"]
+  clean --> edge
+  edge --> tun["cloudflared connector<br/>IPv4 / QUIC either way"]
+  tun --> ing["ingress-nginx :32080"]
+  ing --> jf["Jellyfin pod"]
+  jf --> disk["/mnt/media"]
 #+end_src
 
 The tunnel is not part of the problem. The connector talks to Cloudflare over
@@ -238,21 +237,14 @@ streams before the box is full.
 
 * What I would do differently
 
-- Measure both address families before theorising. One pair of numbers looked
-  like a constant penalty; six runs showed loss, which is a different diagnosis
-  and a different fix.
-- Treat a 5 second DNS time as a dropped query, not a slow resolver. The number
-  is a timer, not a measurement of distance.
-- Remember that the server can be idle while the user is unhappy. CPU, disk and
-  memory were all clean during the worst of it.
-- Check the cache before declaring a fix live. The client kept using IPv6 for
-  minutes after the zone stopped publishing AAAA, because both the answer and
-  the connection were already open.
-- Keep going one layer down. Fixing the path made the transcodes cheap, which is
-  what made the 12 Mbit/s policy cap visible in the first place.
-- Measure again after raising a cap. The CPU per stream went from 0.58 to 0.80
-  cores when the same 4K file stopped being downscaled, and that changes how
-  many viewers fit.
+- Measure both address families before theorising. One pair of numbers looked like a
+  constant penalty; six runs showed loss, which is a different diagnosis and a different
+  fix. A 5 second DNS time is a dropped query, not a slow resolver.
+- Check the cache before declaring a fix live. The client kept using IPv6 for minutes
+  after the zone stopped publishing AAAA, because both the answer and the connection were
+  already open.
+- Measure again after raising a cap. The CPU per stream went from 0.58 to 0.80 cores when
+  the same 4K file stopped being downscaled, and that changes how many viewers fit.
 
 * Links
 

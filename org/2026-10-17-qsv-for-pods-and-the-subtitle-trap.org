@@ -2,10 +2,11 @@
 #+DATE: 2026-10-17T18:00:00-04:00
 #+ALIASES: /posts/2026-10-24-qsv-for-pods-and-the-subtitle-trap/
 #+FILETAGS: homelab:media:kubernetes:jellyfin
+#+DESCRIPTION: Giving a Jellyfin pod the Intel GPU through the device plugin, and the subtitle burn-in that quietly put the CPU back to work.
 
 #+begin_quote
-*Building the lab: Part 6 of 8.* ← [[file:2026-10-16-deepseek-writes-the-boring-parts.org][Where AI fits in the lab]]
-Next: [[file:2026-10-17-two-tunnels-are-better-than-one.org][Two tunnels are better than one]]
+*Building the lab.* ← [[file:2026-10-16-deepseek-writes-the-boring-parts.org][AI in the lab: drafts, an agent, and the leash]]
+Next: [[file:2026-10-17-two-tunnels-are-better-than-one.org][Cloudflare Tunnel HA, and what the tunnel is not for]]
 #+end_quote
 
 Two things broke my media box in the same week. For a while, I did not see that they
@@ -75,6 +76,19 @@ sh: cannot create /dev/dri/renderD128: Operation not permitted
 #+end_src
 
 Open on the machine. Denied in the pod. That one line was the whole answer.
+
+#+begin_src mermaid
+flowchart TB
+  gpu["Intel iGPU"] --> dev["/dev/dri/renderD128"]
+  dev -->|hostPath mount| file["file visible inside the pod"]
+  file --> cg{"device cgroup<br/>allows it?"}
+  cg -->|no, which is the default| denied["Operation not permitted<br/>driver reports 'no display'<br/>and that message is a lie"]
+  dev -->|Intel GPU device plugin| allow["gpu.intel.com/i915: 1<br/>device is allowed"]
+  cg -->|yes| allow
+  allow --> cfg["Jellyfin: qsv, /dev/dri/renderD128"]
+  cfg --> ff["ffmpeg -codec:v h264_qsv"]
+  ff --> quiet["CPU is no longer the bottleneck"]
+#+end_src
 
 ** The fix
 

@@ -1,6 +1,8 @@
 #+TITLE: Hardening a homelab: backups, drift and silent failures
 #+DATE: 2026-10-17
-#+FILETAGS: :homelab:backups:gitops
+#+ALIASES: /posts/2026-10-19-why-forgejo/
+#+FILETAGS: homelab:backups:gitops:forgejo
+#+DESCRIPTION: A day spent making the lab honest: backups that fail before they upload, checks that notice silent failures, and drift that starts with one hand edit.
 
 I spent a day trying to make the homelab *honest*. I did not add features; I
 did the opposite. I went looking for the places where the lab was quietly lying
@@ -20,6 +22,19 @@ all, which a failure alert cannot see.
 And once a week, a job decrypts the newest archive, unpacks it, and runs an
 integrity check on the databases inside. If the backup cannot be restored, it is
 not a backup. It is a file.
+
+#+begin_src mermaid
+flowchart TB
+  job["nightly backup job"] -->|any dump missing, fail before upload| am["Alertmanager"]
+  job --> arch[("archive in R2")]
+  arch --> fresh["daily: newest archive under 36h?"]
+  fresh -->|stale| am
+  arch --> drill["weekly: decrypt, unpack, integrity check"]
+  drill -->|fails| am
+  am --> tg["Telegram"]
+  dms["dead-man's switch<br/>on the workstation, outside the lab"] -->|3 misses in a row| tg
+  dms -.->|watches| pub["public status endpoint"]
+#+end_src
 
 * Silent failures are the default
 
@@ -63,6 +78,14 @@ tells me when it cannot.
 
 GitHub's branch protection wants a paid plan for private repos, so the hook is a
 workaround, not a solution. I wrote that down instead of pretending it was done.
+
+The honest version of that gap: the CI on the GitOps repo can go red and the merge still
+lands, which makes the check advisory rather than a gate. Closing it means a host I
+control, with required checks that actually block, and Forgejo is the candidate. The
+migration order is written down — run it internally with no public edge, mirror two repos
+and read them from ArgoCD, port one workflow, restore it from backup, and move only once
+the mirror and the restore are boring. It waits, because migrating the Git host and the
+platform in the same month is how you get two outages instead of one.
 
 * Watch the watcher
 

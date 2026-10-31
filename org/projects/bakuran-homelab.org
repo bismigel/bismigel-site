@@ -332,7 +332,7 @@ Guardrails:
   dead-man's switch and Alertmanager remain the primary path.
 
 The design is described in the blog post
-[[https://bismigel.dev/posts/2026-10-18-hermes-homelab-sre-agent/][Hermes as a homelab SRE]].
+[[https://bismigel.dev/posts/2026-10-16-deepseek-writes-the-boring-parts/][AI in the lab]].
 
 * 13. Observability and alerting
 

@@ -1,0 +1,16 @@
+{{/* Overrides themes/hugo-omegion/layouts/partials/post-row.html.
+
+     The theme's row is title + date, which is fine for a personal archive and bad
+     for a reader deciding what to open: eighteen long posts, all with the same
+     shape. The one-line description (the Org #+DESCRIPTION, written as an outcome)
+     goes under the title, the same way work-row.html renders .Params.summary. */}}
+{{- $external := .Params.externalUrl -}}
+<a class="link-row-ext" href="{{ with $external }}{{ . }}{{ else }}{{ .RelPermalink }}{{ end }}" {{ with $external }}target="_blank" rel="noopener"{{ end }}>
+  <div class="link-row-ext-inner">
+    <span class="link-row-title"{{ if not $external }} style="view-transition-name: vt-title-{{ .File.UniqueID }}"{{ end }}>{{ .Title | emojify }}</span>
+    {{- with .Description }}
+    <div class="link-row-desc">{{ . }}</div>
+    {{- end }}
+  </div>
+  <span class="link-row-meta">{{ .Date.Format "Jan 2006" }}{{ with $external }} <span class="ext-arrow-inline">&#8599;</span>{{ end }}</span>
+</a>

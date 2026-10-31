@@ -1,0 +1,56 @@
+#+TITLE: Bakuran homelab
+#+SUMMARY: Three NixOS hosts, one k3s cluster, everything declarative: the design, the alerts, and the failures that changed them.
+
+I run a homelab the way I would run production: declarative hosts, one GitOps control
+plane, a three-node etcd quorum, and a small Cloudflare edge. These posts are the build
+log and the incident write-ups, from a traditional sysadmin learning Kubernetes.
+
+#+begin_src mermaid
+flowchart TB
+  net([Internet]) --> cf["Cloudflare edge<br/>DNS, TLS, Access"]
+  cf --> tun["cloudflared tunnel<br/>2 connectors"]
+  git["git repos<br/>NixOS hosts, manifests"]
+
+  subgraph cluster["one k3s cluster: 3 nodes, 3 etcd members"]
+    direction TB
+    tun --> ing["ingress-nginx"]
+    ing --> pub["public apps<br/>Jellyfin, Immich, Kavita"]
+    ing --> adm["Access-gated<br/>Grafana, ArgoCD, admin UIs"]
+    argo["ArgoCD"] -.-> pub
+    argo -.-> adm
+    prom["Prometheus"] --> am["Alertmanager"] --> tg["Telegram"]
+    pub -.-> media["Intel box<br/>QuickSync, /mnt/media"]
+    prom -.-> media
+  end
+
+  argo <-.->|pulls| git
+  prom -.-> ing
+#+end_src
+
+** Start here
+
+- [[file:2026-09-15-homelab-design.org][Designing a self-hosted homelab on three old computers]] — the shape, and why two
+  machines are worse than one.
+- [[file:2026-10-18-observability-is-the-part-im-good-at.org][Homelab observability]] — what I actually watch, and the alerts that page me.
+- [[file:2026-10-28-seven-outages-two-words.org][One dead uplink, seven outages, and two words]] — the incident that taught me the most,
+  including the three days of wrong theories before it.
+- [[file:2026-10-28-replacing-the-etcd-node.org][Replacing the etcd node]] — swapping a quorum member with no downtime, and the five
+  places the old name was hiding.
+- [[file:2026-10-19-native-vs-encapsulation.org][Cilium routing: native vs VXLAN]] — a network decision, and the stale interface that
+  broke it.
+- [[file:2026-10-16-deepseek-writes-the-boring-parts.org][AI in the lab]] — where a model earns its place, and the leash it runs on.
+
+** What this is
+
+The same stack, chosen for a lab and not a demo: NixOS hosts rebuilt from one command,
+k3s with embedded etcd, ArgoCD as the only way in, Longhorn for volumes that must move,
+and Prometheus with rules I actually act on. Every post ends in a thing that broke and
+what it cost, because that is where the learning lives.
+
+** What this is not
+
+Not a tutorial, not a product, and not finished. The hardware is second-hand, the
+planned gaps are listed out loud (no penetration test, no image signing, no disaster
+recovery rehearsal yet), and the repos are private — so the prose is the artifact. The
+long version of the architecture lives in the
+[[https://bismigel.dev/projects/bakuran-homelab/][technical reference]].

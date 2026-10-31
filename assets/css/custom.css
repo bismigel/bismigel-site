@@ -71,3 +71,49 @@
 }
 
 /* cache policy: hashed assets immutable; 404s no-store */
+
+/* Home front door (org/index.org -> layouts/index.html). The theme's .page-intro
+   is muted and small, which suits a list-page header and not a landing page that
+   has to explain the site before the date-sorted list does. */
+.home-intro {
+  color: var(--text);
+  font-size: 1rem;
+  margin-bottom: 2.5rem;
+}
+.home-intro h2 {
+  font-family: var(--font-heading);
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 1.75rem 0 0.6rem;
+}
+.home-intro ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+.home-intro li {
+  margin-bottom: 0.5rem;
+  line-height: 1.55;
+}
+.home-intro a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Post rows show a one-line summary under the title (layouts/partials/post-row.html),
+   so long titles are allowed to wrap instead of being ellipsised to nothing. */
+.link-row-ext-inner .link-row-title {
+  white-space: normal;
+  overflow: visible;
+}
+
+/* Standfirst under the post title (layouts/posts/single.html): the same one-line
+   summary the lists show, so the index and the article agree. */
+.article-standfirst {
+  color: var(--muted);
+  font-size: 1.02rem;
+  line-height: 1.6;
+  margin: 0.7rem 0 0;
+  max-width: 62ch;
+}

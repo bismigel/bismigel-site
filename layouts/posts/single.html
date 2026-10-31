@@ -1,0 +1,47 @@
+{{/* Overrides themes/hugo-omegion/layouts/_default/single.html for posts only.
+
+     Adds the Org #+DESCRIPTION as a standfirst under the title. It is the same
+     line the lists show, which is the point: the promise made in the index and
+     the one on the page should match. */}}
+{{ define "main" }}
+  <article class="article">
+    <header class="article-header" id="top">
+      <h1 style="view-transition-name: vt-title-{{ .File.UniqueID }}">{{ .Title | emojify }}</h1>
+      {{ with .Description }}<p class="article-standfirst">{{ . }}</p>{{ end }}
+      {{ partial "article-meta.html" . }}
+    </header>
+
+    {{ if and (site.Params.enableTableOfContents | default true) (.Params.showTableOfContents | default true) }}
+    {{ partial "toc.html" . }}
+    {{ end }}
+
+    <div class="prose">
+      {{ .Content | emojify }}
+    </div>
+
+    {{ $updated := partial "article-updated.html" . }}
+    {{ if or .Params.tags (ne (strings.TrimSpace $updated) "") }}
+    <div class="article-footer">
+      {{ with .Params.tags }}
+      <div class="tag-list">
+        {{ range . }}
+        <a class="tag" href="{{ "/tags/" | relLangURL }}{{ . | urlize }}/">{{ . }}</a>
+        {{ end }}
+      </div>
+      {{ end }}
+      {{ $updated | safeHTML }}
+    </div>
+    {{ end }}
+
+    {{ if eq .Type "posts" }}
+    {{ $prev := .PrevInSection }}
+    {{ $next := .NextInSection }}
+    {{ if or $prev $next }}
+    <nav class="article-pagination">
+      {{ with $prev }}<a class="prev" href="{{ .RelPermalink }}"><span class="pagination-arrow">&larr;</span><span class="pagination-title">{{ .Title | emojify }}</span></a>{{ end }}
+      {{ with $next }}<a class="next" href="{{ .RelPermalink }}"><span class="pagination-title">{{ .Title | emojify }}</span><span class="pagination-arrow">&rarr;</span></a>{{ end }}
+    </nav>
+    {{ end }}
+    {{ end }}
+  </article>
+{{ end }}

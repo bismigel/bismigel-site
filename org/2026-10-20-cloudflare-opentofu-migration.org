@@ -24,6 +24,17 @@ There is one remote-managed Cloudflare Tunnel, seven Access applications, four
 security zone settings and one R2 lifecycle policy. The old script owned all of
 it.
 
+#+begin_src mermaid
+flowchart LR
+  sh["sync.sh<br/>daily writer, imperative"] -->|one resource at a time| imp["tofu import"]
+  imp --> st[("state on R2<br/>native locking")]
+  st --> plan["tofu plan<br/>no diff = import is honest"]
+  plan --> apply["tofu apply"]
+  apply --> cf["Cloudflare zone:<br/>DNS, tunnel, Access, TLS"]
+  sh -.->|retired| off["cron removed"]
+  manual["dashboard click"] -.->|now drift| cf
+#+end_src
+
 * Importing one resource at a time
 
 I did not import everything at once. I started with one DNS record and checked

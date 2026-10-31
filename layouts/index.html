@@ -4,6 +4,10 @@
   {{ $writingCount := site.Params.homepage.writingCount | default 6 }}
   {{ $workCount := site.Params.homepage.workCount | default 6 }}
 
+  {{/* The landing page explains the site before the date-sorted list does.
+         Source: org/index.org -> content/_index.md (see scripts/convert.sh). */}}
+  {{ with .Content }}<div class="page-intro home-intro">{{ . }}</div>{{ end }}
+
   <div class="section">
     <div class="section-label">Writing</div>
     {{ range first $writingCount $writing }}
