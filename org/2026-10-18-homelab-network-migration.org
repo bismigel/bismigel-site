@@ -175,7 +175,7 @@ trusts =cni+= and sets =checkReversePath=false=. A oneshot removes a stale
 The full comparison is in
 [[file:2026-10-19-native-vs-encapsulation.org][Native vs encapsulation]].
 The failure path is in
-[[file:2026-10-19-cilium-vxlan-troubleshooting.org][the VXLAN troubleshooting guide]].
+[[file:2026-10-19-native-vs-encapsulation.org][the Cilium routing guide]].
 
 * Lessons
 

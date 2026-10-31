@@ -3,7 +3,7 @@
 #+FILETAGS: hugo:emacs:ci
 
 #+begin_quote
-*Building the lab.* ← [[file:2026-09-15-homelab-design.org][The design of the homelab]]
+*Building the lab.* ← [[file:2026-09-15-homelab-design.org][Designing a self-hosted homelab on three old computers]]
 Next: [[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext]]
 #+end_quote
 

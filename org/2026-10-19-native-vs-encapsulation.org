@@ -1,10 +1,12 @@
-#+TITLE: Native vs encapsulated routing for a small homelab
+#+TITLE: Cilium routing: native vs VXLAN, and the stale port that broke the switch
 #+DATE: 2026-10-19T09:30:00-04:00
-#+FILETAGS: homelab:kubernetes:cilium:network
-#+DESCRIPTION: A practical comparison of Cilium native routing and VXLAN encapsulation, and why this three-node k3s lab now uses VXLAN.
+#+ALIASES: /posts/2026-10-19-cilium-vxlan-troubleshooting/
+#+FILETAGS: homelab:kubernetes:cilium:network:troubleshooting
+#+DESCRIPTION: A practical comparison of Cilium native routing and VXLAN encapsulation, why this three-node k3s lab uses VXLAN, and the stale Flannel interface that owned port 8472.
 
-Cilium gives you two main ways to move packets between nodes. The choice is
-small, but it decides what your network and firewall must do.
+Cilium gives you two main ways to move packets between nodes. The choice is small, but it
+decides what your network and firewall must do. I used both, and the second one did not
+start because of something left behind by the first.
 
 * The short version
 
@@ -13,14 +15,13 @@ small, but it decides what your network and firewall must do.
 | Native | Linux routing | PodCIDRs must be routable between nodes | A network you control, often one L2 segment |
 | Encapsulation | VXLAN inside UDP 8472 | Nodes only need IP reachability | A simple lab, or nodes without PodCIDR routes |
 
-Both keep kube-proxy in this lab. Cilium handles the CNI, policy and visibility;
-kube-proxy still handles ClusterIP services.
+Both keep kube-proxy here. Cilium handles the CNI, policy and visibility; kube-proxy still
+handles ClusterIP services.
 
 * Native routing
 
-Native routing tells Cilium to hand non-local packets to the Linux routing
-table. With =autoDirectNodeRoutes=, each node learns a route to every other
-node's PodCIDR:
+Native routing hands non-local packets to the Linux routing table. With
+=autoDirectNodeRoutes=, each node learns a route to every other node's PodCIDR:
 
 #+begin_src yaml
 routingMode: native
@@ -28,48 +29,31 @@ autoDirectNodeRoutes: true
 ipv4NativeRoutingCIDR: "10.42.0.0/16"
 #+end_src
 
-Good:
-
-- no encapsulation overhead;
-- full MTU;
-- simple packet capture and routing inspection.
-
-Cost:
-
-- the underlay must route PodCIDRs;
-- every node needs to learn the other nodes' pod routes;
-- spanning multiple L2 or L3 domains usually means BGP or static routes.
+It buys no encapsulation overhead, full MTU, and simple packet capture and route
+inspection. It costs you a routing job: the underlay must route PodCIDRs, every node must
+learn the other nodes' pod routes, and spanning L2 or L3 domains usually means BGP or
+static routes.
 
 * Encapsulation
 
-VXLAN wraps the pod packet in a UDP packet between nodes. The underlay only
-needs normal node-to-node IP reachability:
+VXLAN wraps the pod packet in a UDP packet between nodes, so the underlay only needs
+normal node-to-node IP reachability:
 
 #+begin_src yaml
 routingMode: tunnel
 tunnelProtocol: vxlan
 #+end_src
 
-Good:
-
-- the simplest underlay requirement;
-- no PodCIDR routes on the physical network;
-- new nodes join without changing a router;
-- works well on a flat home LAN.
-
-Cost:
-
-- about 50 bytes of overhead, so pod MTU drops to 1450 on a 1500 MTU LAN;
-- extra encapsulation and decapsulation work;
-- an extra failure surface: VXLAN device, UDP port and firewall rules.
+That is the simplest underlay requirement: no PodCIDR routes on the physical network, new
+nodes join without touching a router, and it works well on a flat home LAN. The cost is
+about 50 bytes of overhead (pod MTU drops to 1450 on a 1500 MTU LAN), extra
+encapsulation work, and an extra failure surface — the VXLAN device, the UDP port and the
+firewall.
 
 * What this lab uses
 
-VXLAN. All three nodes are on one LAN, but the goal is to keep the network
-configuration small. Native routing worked, but encapsulation lets the nodes
-join with only IP reachability and no PodCIDR routes outside the cluster.
-
-The relevant settings are in =bakuran-gitops=:
+VXLAN. All three nodes are on one LAN, but the goal is to keep the network configuration
+small: nodes join with only IP reachability and no PodCIDR routes outside the cluster.
 
 #+begin_src yaml
 routingMode: tunnel
@@ -84,28 +68,60 @@ networking.firewall.checkReversePath = false;
 networking.firewall.trustedInterfaces = [ "cni+" ];
 #+end_src
 
-=checkReversePath=false= removes the strict NixOS reverse-path chain that can
-drop VXLAN return traffic. It is necessary here, but it is not enough by itself.
+=checkReversePath=false= removes the strict NixOS reverse-path chain that can drop VXLAN
+return traffic. It is necessary here, and it is not enough on its own.
 
 * The failure that cost the most time
 
-VXLAN would not start. Cilium agents logged:
+VXLAN would not start. New pods stayed in =ContainerCreating=, Cilium health was
+unreachable, and existing pods still served traffic. The agent log said:
 
 #+begin_src text
 failed to setup vxlan tunnel device:
   address already in use
 #+end_src
 
-The old Flannel =flannel.1= interface was still up and owned UDP 8472. Removing
-it and restarting Cilium made VXLAN work immediately:
+Two devices were fighting over the port:
+
+#+begin_src bash
+ip -d link show type vxlan
+ss -lunp | grep 8472
+ip -d link show cilium_vxlan
+ip -4 route
+ip -4 rule
+
+kubectl -n kube-system logs ds/cilium --tail=100 |
+  grep -Ei 'vxlan|8472|address already|datapath'
+#+end_src
+
+=flannel.1= was still UP and bound to UDP 8472, so =cilium_vxlan= could not bind it. Flannel
+had been disabled in k3s, but the old interface survived the CNI migration. Removing it and
+restarting Cilium fixed it immediately:
 
 #+begin_src bash
 ip link del flannel.1
 kubectl -n kube-system rollout restart ds/cilium
 #+end_src
 
-Native routing had hidden the problem because it does not use VXLAN. A oneshot
-service now removes a stale =flannel.1= before k3s starts.
+Native routing had hidden the problem, because it never creates a VXLAN device: a stale
+=flannel.1= did not matter until the mode changed. A oneshot unit now removes it before k3s
+starts, so it survives a reboot:
+
+#+begin_src nix
+systemd.services.cleanup-flannel-vxlan = {
+  description = "Remove a stale Flannel VXLAN interface";
+  before = [ "k3s.service" ];
+  wantedBy = [ "multi-user.target" ];
+  serviceConfig = {
+    Type = "oneshot";
+    RemainAfterExit = true;
+  };
+  script = "ip link del flannel.1 2>/dev/null || true";
+};
+#+end_src
+
+Two other settings still matter: =networking.firewall.checkReversePath = false= on NixOS,
+and the fwmark collision when another VPN uses policy routing.
 
 * What to test after switching
 
@@ -113,32 +129,22 @@ service now removes a stale =flannel.1= before k3s starts.
 ip -d link show type vxlan
 ss -lunp | grep 8472
 
+kubectl -n kube-system exec ds/cilium -- cilium-dbg status
+
 kubectl run nettest --image=curlimages/curl:8.10.1 --restart=Never --command -- \
   sh -c 'curl -s -o /dev/null -w "%{http_code}\n" https://example.com'
 #+end_src
 
-Then check:
+Then check: =cilium_vxlan= is UP and UDP 8472 is owned by Cilium; new pods reach
+=Running=; pod DNS, external egress and ClusterIP work; public ingress and LAN hostPort
+still work; and =cilium-dbg status= shows =Tunnel [vxlan]= with health 3/3.
 
-- new pods reach =Running=;
-- pod DNS works;
-- external egress works;
-- ClusterIP services work;
-- public ingress and LAN hostPort still work;
-- =cilium-dbg status= shows =Tunnel [vxlan]= and health is 3/3.
-
-The full failure path is in
-[[file:2026-10-19-cilium-vxlan-troubleshooting.org][Cilium VXLAN troubleshooting: port 8472 already in use]].
-
-The earlier migration story is in
+The migration that led here is in
 [[file:2026-10-18-homelab-network-migration.org][Homelab network migration]].
 
 * Sources
 
-- Cilium routing concepts:
-  https://docs.cilium.io/en/stable/network/concepts/routing/
-- Cilium masquerading:
-  https://docs.cilium.io/en/stable/network/concepts/masquerading/
-- NixOS rpfilter issue:
-  https://github.com/lucas-albers-lz4/rke2nixos/issues/10
-- fwmark collision case:
-  https://pokgak.xyz/notes/cilium-vxlan-tailscale-fwmark-collision/
+- [[https://docs.cilium.io/en/stable/network/concepts/routing/][Cilium routing]]
+- [[https://docs.cilium.io/en/stable/network/concepts/masquerading/][Cilium masquerading]]
+- [[https://github.com/lucas-albers-lz4/rke2nixos/issues/10][NixOS rpfilter issue]]
+- [[https://pokgak.xyz/notes/cilium-vxlan-tailscale-fwmark-collision/][fwmark collision with Tailscale]]

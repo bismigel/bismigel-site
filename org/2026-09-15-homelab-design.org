@@ -1,6 +1,8 @@
 #+TITLE: Designing a self-hosted homelab on three old computers
 #+DATE: 2026-09-15
-#+FILETAGS: homelab:design:nixos
+#+ALIASES: /posts/2026-10-14-one-cluster-three-nodes/
+#+FILETAGS: homelab:design:nixos:ha
+#+DESCRIPTION: The design behind a three-node homelab: old hardware, NixOS instead of Proxmox, one cluster instead of two, and why the third machine matters more than the second.
 
 #+begin_quote
 *Building the lab.* You are at the start.
@@ -8,40 +10,34 @@ Next: [[file:2026-10-02-how-this-site-is-built.org][How this site is built]]
 #+end_quote
 
 I have run this homelab for a few months. It is not a production platform, but it is
-built like one: declarative hosts, one GitOps control plane, a three-node etcd
-quorum, and a small Cloudflare edge.
+built like one: declarative hosts, one GitOps control plane, a three-node etcd quorum,
+and a small Cloudflare edge.
 
-I am a traditional sysadmin. Linux, networking and observability are the familiar
-parts. Kubernetes, GitOps and the cloud-native tooling are what I am learning here.
-This post is the design and the trade-offs behind it.
+I am a traditional sysadmin. Linux, networking and observability are the familiar parts.
+Kubernetes, GitOps and the cloud-native tooling are what I am learning here. This post is
+the design and the trade-offs behind it, including the two-machine mistake that shaped it.
 
 * The computers
 
-I have two computers. I did not plan how to split the work between them.
+- An AMD Ryzen 5 4600G, built from spare parts. It runs my sites and almost everything
+  else.
+- An Intel i5-7500T, bought used for about $100. I chose it because this CPU supports
+  QuickSync, so it can convert video in hardware. It runs the media apps.
+- A 2012 MacBook Pro, found under a pile of cables. It is the last MacBook you can open
+  with a screwdriver. A cheap SSD and an Ethernet cable turned it into the third vote: it
+  holds only etcd and the control plane, marked so nothing else lands on it.
 
-- The first is an AMD Ryzen 5 4600G. I built it from spare parts. It runs my sites
-  and almost everything else.
-- The second is an Intel i5-7500T. I bought it used for about $100. I chose it
-  because this CPU supports QuickSync. QuickSync means it can convert video in
-  hardware. It runs the media apps.
-
-  Later, a third machine turned up: a 2012 MacBook Pro I found under a pile of
-  cables. At that point it only helped the cluster stay alive and did not run any
-  apps. I write about it in a later post.
-
-  *Update 2026-10-20:* the MacBook now runs Immich and one Redis HA replica. The
-  taint remains, and both workloads opt in with explicit tolerations.
+  *Update 2026-10-20:* the MacBook now runs Immich and one Redis HA replica. The taint
+  remains, and both workloads opt in with explicit tolerations.
 
 * NixOS
 
-I started with Proxmox. I did not like the extra layer between me and the thing I
-wanted to change. So I removed it, and put the operating system directly on the
-hardware.
+I started with Proxmox and did not like the extra layer between me and the thing I wanted
+to change, so I put the operating system directly on the hardware.
 
-I chose NixOS because I wanted the host state to be reviewable and reproducible.
-The machine is a set of declarative modules, and a rebuild produces the same
-system. The module language still sends me to the manual, but the state is not
-hidden in shell history.
+NixOS gives me host state that is reviewable and reproducible: the machine is a set of
+declarative modules, and a rebuild produces the same system. The module language still
+sends me to the manual, but the state is not hidden in shell history.
 
 #+begin_src shell
 nix run github:serokell/deploy-rs -- .#<host>
@@ -49,47 +45,80 @@ nix run github:serokell/deploy-rs -- .#<host>
 
 * One cluster, not two
 
-This is the first thing I got wrong. At the start, I had two separate clusters.
-Each box was its own cluster of one machine, with its own copy of everything.
+The first thing I got wrong. At the start each box was its own cluster of one machine,
+with its own copy of everything, and I told myself that was safe: each machine had its own
+Cloudflare connector, so if one went down the tunnel would stay up.
 
-Then I learned something. A cluster of one machine is just one machine. And a
-cluster of two machines is *worse* than either. Here is why. The cluster keeps its
-memory on all its machines, and to change anything, most of them must agree. With
-two machines, you need both. So if one dies, the whole cluster stops. Two machines
-are not better than one. They are worse.
+It would not help. The connector is not what serves my sites; the sites run on one
+machine. If that machine dies, the second connector keeps the *tunnel* open and returns
+errors for everything behind it. I had added safety to the part that rarely breaks and
+none to the part that matters.
 
-So I joined the two machines into one cluster. Later I added the MacBook as a third
-machine. Three is enough to lose one machine and keep going. "More machines" and
-"one cluster" are two different ideas, and I had mixed them up. The merge has its
-own post later.
+** Why three
+
+A cluster of one machine is just one machine. It keeps its memory in etcd, and to change
+anything most of the machines must agree. With two machines you need both, so if one dies
+the cluster stops: two are not better than one, they are worse. Three is the smallest
+number that can lose a machine and keep going.
+
+** Letting the AI drive
+
+Here is the honest part: I did not want to partition a disk by hand, install NixOS and
+then make the cluster accept it — three things to get wrong in one night. So I gave an AI
+assistant the MacBook's SSH key and a one-line instruction: install NixOS, match the other
+two machines, and join the cluster. It erased the disk, installed NixOS over SSH, gave the
+machine a fixed address and joined the cluster. I watched, and I understood maybe a third
+of it.
+
+** What bit me
+
+- *The firewall.* The join kept timing out. The etcd port between machines was not open on
+  the other two. The new node could reach the API but not its peers, and I stared at pod
+  logs for a long time before checking the machine firewall.
+- *The mark.* Keeping the MacBook small is right for it, but it also means it cannot help
+  *spread* apps for safety. A node that only runs the control plane keeps the cluster
+  alive; making the apps safe is a different job.
+- *Storage.* My apps keep data on the local disk of the machine they run on, so even with
+  three healthy machines a pod cannot simply move: its data is not there. Three machines
+  gave me a strong control plane, not strong apps. I added shared storage later, for the
+  parts that need it.
+
+** Making the control plane safe too
+
+The cluster can survive losing a machine, but the thing that *manages* the cluster should
+not be a single copy. The GitOps controller now runs two copies of its web, repo and
+app-set parts, and two copies of its controller (one active, one waiting). One part is
+still a single copy: its cache. That is a weak point I have not fixed.
+
+The lesson: being safe is a property of a *service*, not of a box or a cable. A second
+tunnel connector did not make my sites safe, it made the tunnel safe. Once I could say
+what I wanted to survive — a whole machine going away — the design became clear. Three
+machines that agree is stranger and harder than two machines that pretend, and it is the
+first version that is true.
 
 * Where things run
 
-The media apps run only on the Intel box. That box has QuickSync, so it is the right
-place for them. Every other app runs on the AMD box. I keep the MacBook small on
-purpose. I marked it so that no apps can land on it.
+The media apps run only on the Intel box, because QuickSync is the right tool for them.
+Everything else runs on the AMD box. Keeping the MacBook small is deliberate.
 
-When I write it down, it looks obvious. It took me a while to get there.
+When I write it down it looks obvious. It took me a while to get there.
 
 * Kubernetes
 
 Plain Docker would have run these services. I chose Kubernetes because I wanted one
-scheduler, one GitOps surface and one place to reason about health. Kubernetes is
-the part I am still learning, and the lab is small enough that I can see the whole
-control plane.
+scheduler, one GitOps surface and one place to reason about health. It is the part I am
+still learning, and the lab is small enough that I can see the whole control plane.
 
 Each box runs k3s. k3s ships Traefik and ServiceLB; I disabled both and run
-ingress-nginx. That is not a judgement on Traefik. It is one ingress controller with
-explicit config, and I can trace a request through it.
+ingress-nginx, not as a judgement on Traefik but for one ingress controller with explicit
+config that I can trace a request through.
 
 * ArgoCD
 
-The desired state lives in git. One in-cluster ArgoCD reconciles it. GitOps was the
-biggest mental shift for me: the cluster pulls toward git, instead of me pushing
-commands at it. The failure mode is a control-plane outage, which is why the hosts
-are rebuildable, app state goes to R2, and the cluster config lives in git.
-
-The layout looks like this:
+The desired state lives in git, and one in-cluster ArgoCD reconciles it. GitOps was the
+biggest mental shift: the cluster pulls toward git instead of me pushing commands at it.
+The failure mode is a control-plane outage, which is why the hosts are rebuildable, app
+state goes to R2, and the cluster config lives in git.
 
 #+begin_example
 bakuran-gitops/
@@ -98,43 +127,39 @@ bakuran-gitops/
   manifests/<app>/...           # the files the apps point at
 #+end_example
 
-The root Application points at the =applications/= tree. A second ApplicationSet
-generates the per-node exporters, so a new node is picked up without a manual
-registration.
+The root Application points at the =applications/= tree, and a second ApplicationSet
+generates the per-node exporters, so a new node is picked up without manual registration.
 
 When I change an app:
 
 1. I push to the app repo's =main=.
 2. GitHub Actions builds the image and pushes it to GHCR with an immutable tag
    (=main-<UTC timestamp>-<sha>=).
-3. The workflow rewrites the image tag in the Kubernetes manifest, pushes a branch
-   and opens a pull request.
+3. The workflow rewrites the image tag in the Kubernetes manifest, pushes a branch and
+   opens a pull request.
 4. ArgoCD reconciles the merged commit and rolls the Deployment.
 
-The CI side is familiar. The part I had to learn is the handoff: CI writes only an
-image tag to git, and ArgoCD owns the cluster. The workflow has =contents: write=
-and =packages: write=, and no kubeconfig. This site auto-merges the tag PR; the app
-template pushes the bump directly. Either way, the manifest is the only interface
-between CI and the cluster.
+The CI side is familiar. What I had to learn is the handoff: CI writes only an image tag
+to git, and ArgoCD owns the cluster. The workflow has =contents: write= and
+=packages: write=, and no kubeconfig. This site auto-merges the tag PR; the app template
+pushes the bump directly. Either way, the manifest is the only interface between CI and
+the cluster.
 
 * Secrets
 
-Plain text never goes into git. Host secrets (tunnel credentials, keys) are
-SOPS-encrypted with age in the NixOS repo. Cluster secrets live in Bitwarden
-Secrets Manager and are materialised by External Secrets Operator. I tried two
-worse setups first; that is the post after next.
+Plain text never goes into git. Host secrets (tunnel credentials, keys) are SOPS-encrypted
+with age in the NixOS repo. Cluster secrets live in Bitwarden Secrets Manager and are
+materialised by External Secrets Operator. I tried two worse setups first; that is a post
+of its own.
 
 * The front door
 
-Nothing is published directly. =cloudflared= makes outbound connections to
-Cloudflare, and the tunnel routes hostnames to the in-cluster ingress. Access
-authenticates the admin surfaces; public apps use their own auth. The origin is
-reachable only through the tunnel, which is what makes the Access identity header
-trustworthy.
+Nothing is published directly. =cloudflared= makes outbound connections to Cloudflare, and
+the tunnel routes hostnames to the in-cluster ingress. Access authenticates the admin
+surfaces; public apps use their own auth. The origin is reachable only through the tunnel,
+which is what makes the Access identity header trustworthy.
 
 * How it fits together
-
-The topology, in one picture:
 
 #+begin_src mermaid
 flowchart TB
@@ -155,13 +180,11 @@ flowchart TB
 
 * What I would still change
 
-The front door trusts an identity header that Access adds. That is only safe if the
-origin can be reached *only* through the tunnel. For a while, my services were also
-reachable on the LAN. On the LAN, someone could fake that header. I fixed this later.
-The LAN can no longer bypass the edge. But I want to keep it written down, instead of
-pretending it was never a problem.
+The front door trusts an identity header that Access adds. That is only safe if the origin
+can be reached *only* through the tunnel, and for a while my services were also reachable
+on the LAN, where someone could fake that header. I fixed it later. The LAN can no longer
+bypass the edge, but I want it written down instead of pretending it was never a problem.
 
-That is the theme, really. I have learned more from the things I got wrong than from
-anything I read.
-
-Before any of the rest, I needed somewhere to write it all down. That is the next part.
+That is the theme: I have learned more from the things I got wrong than from anything I
+read. Before any of the rest, I needed somewhere to write it all down. That is the next
+part.

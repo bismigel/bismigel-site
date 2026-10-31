@@ -1,51 +1,127 @@
-#+TITLE: Seven outages, two words
+#+TITLE: One dead uplink, seven outages, and two words
 #+DATE: 2026-10-28T20:40:00-04:00
-#+FILETAGS: homelab:wireguard:linux:routing:ops
-#+DESCRIPTION: A WireGuard tunnel that took a node off the network seven times, the wrong theories it took to explain it, and the two-word fix — kernel rule priority, not the link.
+#+ALIASES: /posts/2026-10-25-the-outage-that-looked-like-blocking/
+#+FILETAGS: homelab:wireguard:linux:routing:monitoring:ops
+#+DESCRIPTION: An hour spent blaming indexers, seven outages that came from trying to make the fix permanent, and the two-word kernel rule priority that took three days and a throwaway VM to find.
 
-On 2026-10-25 the media node went off the network seven times. Each time it came
-back only after a power-cycle, and each time the trigger was a deploy that changed
-something innocent-looking about its WireGuard tunnel.
+I spent an hour convinced that book indexers were blocking this homelab. They were
+innocent. Our own uplink was dead, and every application reported it differently.
 
-The fix turned out to be two words in a config file: =pref 32765= and
-=pref 32764=. But it took three days, a disposable virtual machine, and a
-handful of wrong theories to get there — and the honest story is more useful
-than the fix.
+That was the first of seven outages in three days, each one triggered by a deploy that
+changed something innocent-looking about the media node's WireGuard tunnel. The story is
+worth telling in one piece, because the wrong theories and the real fault belong
+together: the habit that kept the node up was hiding the defect.
 
-* What it looked like
+* What I saw
 
-The node answered ARP and nothing else. No ICMP, no TCP, no SSH from any other
-host. The link light was on, the interface was up, =wg show= reported a recent
-handshake, and the kill-switch rules were in place. Everything an operator would
-check said "fine".
+The media node had stopped downloading books that clearly existed. Searches through
+Prowlarr returned nothing, a newly added indexer answered "all selected indexers
+unavailable", and Anna's Archive and two library mirrors returned =000= from =curl=.
 
-A power-cycle fixed it, every time, which is exactly the kind of repair that
-teaches you nothing.
+So I built a theory: these sites block datacenter IPs and VPN egress, which is why book
+acquisition is hard on a homelab. Every part of that theory was wrong.
 
-* The theories, in the order they were wrong
+* The check I should have run first
 
-=The endpoint is dead.= Plausible: Proton rotates endpoints, and the tunnel held
-a stale server. But the "old" endpoint answered fine from another host when it
-was finally tested — days later than it should have been.
+One command would have saved the hour:
 
-=It is IPv6.= The tunnel carried =::/0= while the peer had no IPv6 allowed-ips,
-so v6 packets entered the tunnel and died. Real, but a different bug: it made
-dual-stack clients slow, not dead.
+#+begin_src sh
+for h in example.com registry.npmjs.org api.telegram.org; do
+  printf '%-22s ' "$h"
+  curl -sS -o /dev/null --connect-timeout 8 -w '%{http_code}\n' "https://$h/"
+done
+#+end_src
 
-=It is the stale private key.= This one was real — a key that pairs with the
-wrong server still completes a handshake and then blackholes everything. It
-caused four of the seven outages, and it is why there is now a fingerprint check
-in the recovery script.
+Everything returned =000= with =conn=0.000000s=. When *every* destination fails, including
+ones nobody blocks, the problem is your egress. A site-specific block fails one host; a
+dead tunnel fails all of them. That is now the first line of the runbook page: prove
+egress before blaming a site.
 
-Each of those was a genuine bug. None of them explained the *pattern*: the node
-stranding itself during an activation. So the pattern got its own investigation,
-and that investigation needed somewhere to fail safely.
+* What was actually true
 
-* A staging guest that fails the way production fails
+The tunnel was up as an interface: the unit was =active=, =Result=success=, and =wg show=
+reported a handshake from 37 minutes earlier with 280 GiB received and 9 GiB sent. Packets
+were leaving and nothing was coming back.
 
-You cannot experiment with "does this take the media node off the network" on the
-media node. So there is now a throwaway KVM guest that mirrors the parts that
-matter:
+The night had three faults, and I got the first explanation wrong in a way worth
+recording. What follows is the corrected version:
+
+- **A stale private key.** After a rolled-back deploy, =/run/secrets/wg_proton_private_key=
+  still held the previous key while the config expected the new one. WireGuard handshakes
+  with a mismatched key and then silently blackholes the payload. *A handshake is not a
+  working tunnel.*
+- **Seven outages, all my fault.** Every deploy that changed the =wg-quick-proton0=
+  systemd unit restarted it, and a =wg-quick= restart deletes and recreates the interface,
+  which strands this node. The last one was my own commit dropping a =wants/after
+  sops-nix.service= override — enough to change the unit.
+- **=::/0= in =allowedIPs=.** This peer does not route IPv6, so advertising =::/0= only
+  added a second way to blackhole traffic. One exception, so nobody "tidies" it: the
+  boot-seed block still lists =::/0= so its systemd unit stays byte-identical to the
+  running generation, and the reconciler enforces IPv4-only at runtime. Changing the seed
+  is what restarts the tunnel and strands the node.
+
+* The fix that does not take the node down
+
+I made it worse before better. My first move was =systemctl restart wg-quick-proton0=, and
+the machine never came back: ARP answered, nothing above layer 2, and it needed a physical
+power-cycle. A node whose only route to the world is the tunnel it just tore down is a node
+you cannot reach to fix.
+
+The correct move is to swap the peer in place, with no teardown:
+
+#+begin_src sh
+wg set proton0 private-key /tmp/new-key
+wg set proton0 peer <server-pubkey> endpoint 176.113.74.82:51820 \
+       allowed-ips 0.0.0.0/0 persistent-keepalive 25
+#+end_src
+
+Plus the endpoint pin, so a route into its own tunnel cannot return:
+
+#+begin_src sh
+ip route replace 176.113.74.82/32 via 192.168.2.1 dev eno1 table main
+#+end_src
+
+Handshake inside ten seconds, =registry.npmjs.org= returning 200.
+
+With real egress, the sites retested:
+
+| Target | Result |
+|--------|--------|
+| =ebookbay.com= | **200** |
+| =audiobookbay.lu= | **200** |
+| =libgen.li= | 200 |
+| =annas-archive.org= | unreachable (fails at DNS from pods) |
+| =libgen.is=, =library.lol= | dead mirrors |
+
+The one site I had declared "blocking our egress" answers fine. EBookBay still fails
+*inside* Prowlarr, which makes it a definition problem, not a network one. AudioBookBay
+answers but has no Prowlarr definition, so audiobooks need a definition and a torrent
+client — configuration work, not a wall. "The site blocks us" is a claim that needs a
+control target before you write it down.
+
+* Why restarting stranded it
+
+The interesting part is not the dead key. It is that a deploy could take the node off the
+network at all, and the fix took three days, a throwaway VM, and a handful of wrong
+theories.
+
+** The theories, in the order they were wrong
+
+=The endpoint is dead.= Plausible, since Proton rotates endpoints — but the "old" endpoint
+answered fine from another host when it was finally tested, days later than it should have
+been.
+
+=It is IPv6.= The tunnel carried =::/0= while the peer had no IPv6 allowed-ips, so v6
+packets entered the tunnel and died. Real, and a different bug: it made dual-stack clients
+slow, not dead.
+
+=It is the stale private key.= Also real, and it caused four of the seven outages. But it
+did not explain the *pattern*: the node stranding itself during an activation.
+
+** A staging guest that fails the way production fails
+
+You cannot experiment with "does this take the media node off the network" on the media
+node, so there is now a throwaway KVM guest that mirrors the parts that matter:
 
 #+begin_src text
 k3s, --flannel-backend=none, kube-proxy ON   (same as production)
@@ -55,96 +131,57 @@ pod CIDR 10.52.0.0/16, service CIDR 10.53.0.0/16  (never 10.42/10.43)
 a wg-quick full tunnel (AllowedIPs 0.0.0.0/0) to a dead TEST-NET-3 endpoint
 #+end_src
 
-The dead endpoint is deliberate: it makes "the tunnel carries no traffic"
-deterministic, so any failure is a *routing* failure and not a VPN question.
+The dead endpoint is deliberate: it makes "the tunnel carries no traffic" deterministic,
+so any failure is a *routing* failure and not a VPN question. It reproduced: **3 strands in
+about 21 cold boots**, roughly one in seven, at random. That rate is a trap, because a run
+that survives proves nothing.
 
-It reproduced: *3 strands in about 21 cold boots*. Roughly one in seven, at
-random. That rate is a trap — a run that survives proves nothing, so a clean
-result cannot be read as a fix.
+** Catching it in the act
 
-* Catching it in the act
-
-The turning point was instrumenting the failure instead of explaining it. A timer
-armed before the tunnel came up dumped =ip rule show= to the serial console every
-three seconds.
-
-In the healthy case:
+The turning point was instrumenting the failure instead of explaining it. A timer armed
+before the tunnel came up dumped =ip rule show= to the serial console every three seconds.
 
 #+begin_src text
-0:     from all lookup local
-32764: from all lookup main suppress_prefixlength 0
-32765: not from all fwmark 0xca6c lookup 51820
-32766: from all lookup main
+healthy   0: from all lookup local
+      32764: from all lookup main suppress_prefixlength 0
+      32765: not from all fwmark 0xca6c lookup 51820
+      32766: from all lookup main
+
+stranded  9: from all fwmark 0x200/0xf00 lookup 2004     <- Cilium
+         98: from all lookup main suppress_prefixlength 0
+         99: not from all fwmark 0xca6c lookup 51820
+        100: from all lookup local
 #+end_src
 
-In the stranded case:
+The interface was identical. The routes were identical. What differed was the *priority
+numbering*: in the failing case the tunnel's two rules sit at 98 and 99, which is above the
+=local= rule at 100. A packet addressed to the node's own LAN address is then looked up in
+=main=, finds the connected /24, and is sent *out of the interface* instead of being
+delivered locally. The node stops answering its own IP. ARP still works, because ARP is
+layer 2, and nothing in the logs says anything.
 
-#+begin_src text
-9:     from all fwmark 0x200/0xf00 lookup 2004     <- Cilium
-98:    from all lookup main suppress_prefixlength 0
-99:    not from all fwmark 0xca6c lookup 51820
-100:   from all lookup local
-#+end_src
+** Why 98 and 99
 
-The interface was identical. The routes were identical. What differed was the
-*priority numbering*: in the failing case the tunnel's two rules sit at 98 and 99,
-which is *above* the =local= rule at 100 — and in the working case they sit at
-32764/32765, comfortably below =local= at 0.
+=wg-quick= adds its rules with =ip rule add= and no explicit priority. The kernel picks one
+in =fib_default_rule_pref()=
+([[https://github.com/torvalds/linux/blob/master/net/core/fib_rules.c][net/core/fib_rules.c]]),
+and that is the priority of the second rule in the list, minus one. It is not a constant,
+and it is not "the highest unused priority" as the folklore says: what ends up second
+depends on what else has numbered itself.
 
-That is the whole failure. When the tunnel's rules outrank =local=, a packet
-addressed to the node's own LAN address is looked up in =main=, finds the
-connected /24, and is sent *out of the interface* instead of being delivered
-locally. The node stops answering its own IP. ARP still works, because ARP is
-layer 2. Nothing in the logs says anything, and =wg-quick down= cannot repair it,
-because the rules were added at the wrong priorities in the first place.
-
-* Why 98 and 99?
-
-=wg-quick= adds its rules with =ip rule add= and no explicit priority. The kernel
-then picks one, in =fib_default_rule_pref()= —
-[[https://github.com/torvalds/linux/blob/master/net/core/fib_rules.c][net/core/fib_rules.c]]:
-
-#+begin_src c
-static u32 fib_default_rule_pref(struct fib_rules_ops *ops)
-{
-	if (!list_empty(&ops->rules_list)) {
-		pos = ops->rules_list.next;
-		if (pos->next != &ops->rules_list) {
-			rule = list_entry(pos->next, struct fib_rule, list);
-			if (rule->pref)
-				return rule->pref - 1;
-			return 0;
-		}
-	}
-	return 0;
-}
-#+end_src
-
-That is: *the priority of the second rule in the list, minus one*. It is not a
-constant, and it is not "the highest unused priority" as the folklore says. What
-ends up second in the list depends on what else has numbered itself.
-
-On these nodes, Cilium installs a rule at priority 9 and the =local= rule sits at
-100. So the list the kernel sees is =[9, 100, 32766, 32767]=, the computed default
-is 99, and the tunnel's two rules land at 99 and 98 — both above =local=.
-
-When the tunnel comes up *before* Cilium has created its rule, the list is
-=[0, 32766, 32767]=, the default is 32765, and the rules land at 32765/32764 —
-below =local=, and everything works.
-
-That also explains the one-in-seven rate: it is a *boot race* between Cilium
-numbering its rules and =wg-quick= adding its own. On a node that is already
-running, it is not a race at all — it is deterministic, and a restart will strand
-it every single time:
+On these nodes Cilium installs a rule at 9 and =local= sits at 100, so the kernel sees
+=[9, 100, 32766, 32767]=, computes 99, and lands the tunnel's rules at 99 and 98 — above
+=local=. When the tunnel comes up *before* Cilium numbers its rule, the list is
+=[0, 32766, 32767]=, the default is 32765, and everything works. That also explains the
+one-in-seven rate: it is a boot race. On a node that is already running it is not a race at
+all, and a restart strands it every time.
 
 | rule variant | reachable |
 |--------------+-----------|
 | =pref 32765= / =pref 32764= | 10/10 |
 | no =pref= (=wg-quick=, and the staged module) | 0/10 |
 
-* The proof, in one guest, seconds apart
-
-Same node, same Cilium state, same table contents — only the priority differs:
+The proof was one guest, same Cilium state, same table contents, seconds apart:
 
 | step | rules | gateway |
 |------+-------+---------|
@@ -152,12 +189,11 @@ Same node, same Cilium state, same table contents — only the priority differs:
 | B | identical rules, no =pref= → 98/99 | =GW-FAIL= |
 | C | explicit =pref= restored | =GW-OK= |
 
-That is causal, not correlational. And it disposes of the tidy explanation that
-the tunnel's rules were "added in the wrong order": they were added in exactly
-the right order, at the wrong priority, because the kernel derived it from
-somebody else's numbering.
+That is causal, not correlational. It also disposes of the tidy explanation that the rules
+were "added in the wrong order": they were added in the right order at the wrong priority,
+because the kernel derived it from somebody else's numbering.
 
-* The fix, and what the fix did not cover
+** The fix, and what it did not cover
 
 The tunnel now runs on =networking.wireguard= with both rules pinned:
 
@@ -166,55 +202,77 @@ ip -4 rule add pref 32765 not fwmark 51820 table 51820
 ip -4 rule add pref 32764 table main suppress_prefixlength 0
 #+end_src
 
-and =nix flake check= refuses to build if those two =pref= arguments disappear,
-or if a =wg-quick= interface comes back.
+and =nix flake check= refuses to build if those two =pref= arguments disappear or if a
+=wg-quick= interface comes back. Making the command unnecessary mattered more than a
+better command:
 
-That is the mechanism fixed. Then the reboots found two more bugs, and neither
-could have been found by deploying to a running node:
+- the =wg-quick= block now deliberately quotes the *previous* endpoint, so activating a new
+  generation does not change the unit and therefore does not restart the tunnel — verified
+  across two deploys with =NRestarts=0= and an unchanged =ActiveEnterTimestamp=;
+- a timer-driven reconciler owns the live state and converges it in place with =wg set=,
+  never a restart, and corrects the seed within ~90 seconds of a reboot.
 
-*Deploying is not booting.* =postSetup= pinned the endpoint route before
-NetworkManager had given =eno1= an address, and =ip route ... via 192.168.2.1=
-answered =Nexthop has invalid gateway=. The unit is =Type=oneshot=, so that
-failure is final: the node came back with no tunnel and no egress at all. It
-looked fine during the deploy, because the device was already configured then.
-=postSetup= now retries for 60 s and refuses to continue rather than blackholing
-the machine.
+The reboots then found two more bugs that deploying to a running node could not:
 
-*The tunnel renamed the node.* k3s derives its node address from the default
-route, and on this host the default route is the tunnel. With the tunnel now
-starting earlier, k3s called itself =10.2.0.2= and etcd advertised
-=https://10.2.0.2:2379= — an address no peer can reach, because it lives inside
-the tunnel that the peers do not share. The member never rejoined and the node sat
-=NotReady= for ten minutes. It is a genuinely funny shape: the node's identity was
-derived from the tunnel, and the tunnel's job is to carry traffic for that
-identity. =--node-ip= and =--advertise-address= are now pinned.
+- **Deploying is not booting.** =postSetup= pinned the endpoint route before NetworkManager
+  had given =eno1= an address, so =ip route ... via 192.168.2.1= answered "Nexthop has
+  invalid gateway". The unit is =Type=oneshot=, so the failure was final: the node came
+  back with no tunnel and no egress. It now retries for 60 s and refuses to continue
+  rather than blackholing the machine.
+- **The tunnel renamed the node.** k3s derives its node address from the default route, and
+  here the default route is the tunnel. With the tunnel starting earlier, k3s called itself
+  =10.2.0.2= and etcd advertised =https://10.2.0.2:2379= — an address no peer can reach,
+  because it lives inside a tunnel the peers do not share. The member never rejoined and
+  the node sat =NotReady= for ten minutes. =--node-ip= and =--advertise-address= are now
+  pinned.
+
+* Monitoring, so the next one is not an hour
+
+Nothing watched the tunnel. Disk alerts watched the pool, =NodeDown= watched the node, and
+both were green while no *arr could reach an indexer.
+
+node_exporter has no WireGuard collector, so the host writes the metrics itself: a 30
+second systemd timer dumps handshake age and transfer counters into
+=/var/lib/node-exporter/textfile/=, which node-exporter now scrapes.
+
+| Alert | Condition |
+|-------|-----------|
+| =WireGuardNoHandshake= | handshake older than 5 minutes — critical |
+| =WireGuardHandshakeStale= | older than 3 minutes for 10 minutes |
+| =WireGuardMetricsMissing= | no metrics at all |
+
+=persistentKeepalive= is 25s, so a healthy tunnel re-handshakes well inside the three
+minute window. The thresholds come from that number, not from taste.
 
 * What I would take from this
 
-*The lock was the bug.* "Never restart the tunnel" was written down as a rule, and
-it was correct as a description of the symptom — but a rule like that hides the
-defect behind a habit. The replacement says what actually keeps the node up: those
-two =pref= arguments. The same applies to the rollback: =wg-restore.sh= repairs the
-link in place, and rolling back with =wg-quick up= would have re-created the outage
-while looking like a return to safety.
-
-*An absent metric looks exactly like a healthy one.* Earlier in this saga every
-=wireguard_*= metric had never reached Prometheus, because the textfile collector
-skipped a file that was =0600= while node-exporter ran as =nobody=. The only alert
-that ever fired was the one for the metric being missing.
-
-*An empty PromQL result is indistinguishable from an error.* The first version of
-the fix for a noisy alert used =and ... group_left=, which is not valid PromQL; it
-failed as an empty result, which looks precisely like "nothing to report". The
-control query — the same expression with the guard disabled — is what exposed it.
-
-*Boot is part of the acceptance test.* Twice now the difference between "works" and
-"works after a power cut" was a boot-ordering assumption nobody had written down.
+- *The lock was the bug.* "Never restart the tunnel" was written down as a rule, and it was
+  a correct description of the symptom — but a rule like that hides the defect behind a
+  habit. The replacement says what actually keeps the node up: those two =pref= arguments.
+  The same applies to rollback: =wg-restore.sh= repairs the link in place, and rolling back
+  with =wg-quick up= would have re-created the outage while looking like a return to
+  safety.
+- *An absent metric looks exactly like a healthy one.* Every =wireguard_*= metric had never
+  reached Prometheus, because the textfile collector skipped a file that was =0600= while
+  node-exporter ran as =nobody=. The only alert that fired was the one for the metric being
+  missing.
+- *An empty PromQL result is indistinguishable from an error.* The first fix for a noisy
+  alert used =and ... group_left=, which is not valid PromQL; it failed as an empty result,
+  which looks precisely like "nothing to report". The control query — the same expression
+  with the guard disabled — is what exposed it.
+- *Boot is part of the acceptance test.* Twice the difference between "works" and "works
+  after a power cut" was a boot-ordering assumption nobody had written down.
+- *Monitor the thing your application depends on*, not the thing that is easy to measure.
+  The pool had two alerts and the VPN had none, because disks are visible and uplinks are
+  not.
+- *Prove egress before blaming a site.* One =curl= loop with a control target is enough.
+  And keep the honest number: the library was smaller than it looked for an hour, and the
+  reason was ours.
 
 * Where it stands
 
-The tunnel is up within about forty seconds of boot, egress through it works, and
-the operation that caused seven outages is now routine:
+The tunnel is up about forty seconds after boot, egress through it works, and the operation
+that caused seven outages is now routine:
 
 #+begin_src sh
 ssh root@192.168.2.81 systemctl restart wireguard-proton0
@@ -222,7 +280,11 @@ ssh root@192.168.2.81 systemctl restart wireguard-proton0
 #   egress 301, fresh handshake each time
 #+end_src
 
-The recovery procedures are in runbook 14, the invariants — including the two
-=pref= values — are in =NETWORK.md=, and the staging guest that made this
-answerable is checked in so the next mystery starts with an instrument instead of a
-theory.
+The recovery procedures are in runbook 14, the invariants — including the two =pref=
+values — are in =NETWORK.md=, and the staging guest that made this answerable is checked
+in, so the next mystery starts with an instrument instead of a theory.
+
+One small correction, because it was embarrassing: the reconciler's own data-path check
+demanded HTTP =200= from =https://1.1.1.1/=, which answers =301=. It reported "no data
+path — endpoint/key mismatch" on a healthy tunnel for hours. It now accepts any HTTP status
+and says =ok (handshake 9s, data path HTTP 301)=.

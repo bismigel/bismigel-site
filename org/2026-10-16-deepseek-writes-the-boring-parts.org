@@ -5,7 +5,7 @@
 #+DESCRIPTION: Where a model earns its place in a homelab, and what it takes to run an agent with read-only cluster access, a daily report and guardrails that are technical blocks instead of suggestions.
 
 #+begin_quote
-*Building the lab.* ← [[file:2026-10-14-one-cluster-three-nodes.org][One cluster, three nodes]]
+*Building the lab.* ← [[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext]]
 Next: [[file:2026-10-17-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]]
 #+end_quote
 
@@ -182,6 +182,6 @@ So the lab ran, and a model wrote a good part of it. Then I tried to watch somet
 and hit a wall.
 
 #+begin_quote
-*Building the lab.* Previous: [[file:2026-10-14-one-cluster-three-nodes.org][One cluster, three nodes]] ·
+*Building the lab.* Previous: [[file:2026-09-15-homelab-design.org][Designing a self-hosted homelab on three old computers]] ·
 Next: [[file:2026-10-17-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]]
 #+end_quote
