@@ -8,7 +8,7 @@
 | Field | Value |
 |-------+-------|
 | Document | Bakuran homelab: technical reference |
-| Version | *2026-10-20* (Redis HA and Cilium correction) |
+| Version | *2026-10-31* (ThinkCentre quorum, Longhorn layout, Duwende) |
 | Scope | Hardware, network edge, cluster, storage, delivery, services, observability, backups, security |
 | Audience | Future me, anyone reviewing the design, and the agent that helps run it |
 | Redactions | Internal addresses, account identifiers and credentials are omitted on purpose |
@@ -48,7 +48,8 @@ failures. The constraints shaped almost every decision:
 |------+---------+-------+------|
 | Platform | AMD desktop | Ryzen 5 4600G (6c/12t), 16 to 32 GB RAM, 2× NVMe + 2× SATA | Control plane + etcd, ArgoCD, ingress, edge connectors |
 | Media | Intel mini-PC | i5-7500T (4c), QuickSync, 2× NVMe + 2× SATA | Jellyfin and the *arr stack, transcoding |
-| Quorum + photos | 2012 MacBook Pro | ~240 GB SSD | Third etcd member (tainted), Immich server/DB |
+| Quorum | ThinkCentre M900 Tiny | i5-6500T (4c), 16 GB, 256 GB SATA SSD | Third etcd member; Immich Postgres and Redis |
+| Staging | 2012 MacBook Pro | ~240 GB SSD | Not a cluster member since 2026-10-28; hosts the KVM guests that rehearse risky changes |
 | Admin | Workstation | - | NixOS + Home Manager, deploys, dead-man's switch |
 | Edge | Cloudflare | - | Tunnel, DNS, TLS, Zero Trust Access, R2 |
 
@@ -68,11 +69,12 @@ flowchart TB
     D["SABnzbd · qBittorrent"]
     B["Kavita · LazyLibrarian"]
   end
-  subgraph Q["Quorum + photos: MacBook Pro"]
-    K3["k3s server · etcd (tainted)"]
-    IM["Immich server · Postgres"]
+  subgraph Q["Quorum: ThinkCentre M900 Tiny"]
+    K3["k3s server · etcd"]
+    IM["Immich Postgres · Redis"]
   end
   W["Admin workstation<br/>deploy · dead-man's switch"]
+  MB["MacBook Pro<br/>staging guests, off-cluster"]
   R2[("Cloudflare R2")]
   CF --> I
   I --> A
@@ -87,9 +89,15 @@ flowchart TB
   W --> R2
 #+end_src
 
-The taint on the MacBook is deliberate: it is a quorum member and a photo host,
-not a general-purpose worker. Removing it from the cluster would leave two etcd
-members, a worse failure mode than using it carefully.
+The MacBook was the third etcd member until 2026-10-28, when the ThinkCentre
+replaced it (the swap has its own blog post). It then rejoined as a worker, found
+the two things that had been living on it, and left the cluster for good: a 2012
+laptop on permanent charge is a battery waiting to become a fire and a disk
+waiting to fail, and it could not be recovered without someone physically opening
+the lid. It now hosts the throwaway KVM guests used to rehearse changes that
+could strand a node. The alternative — keeping it as a tainted quorum member —
+was a worse failure mode than moving the role to hardware that can be reached
+over SSH.
 
 * 3. Network and edge
 
@@ -110,9 +118,9 @@ The **public edge is Cloudflare Tunnel**, not port forwarding:
   interactive Access challenge. They are exposed behind the user's own login
   instead. This is the single biggest security trade-off in the design and it is
   documented rather than hidden.
-- Minimum TLS 1.2 and Bot Fight Mode are enforced from the same declarative
-  edge file that creates the tunnel routes, DNS records and Access apps. A daily
-  timer reconciles it so hand edits do not survive.
+- Minimum TLS 1.2 and Bot Fight Mode are enforced from the same OpenTofu
+  configuration that declares the tunnel routes, DNS records and Access
+  applications (details in §6). Nothing on the edge is clicked into a dashboard.
 
 #+begin_src mermaid
 flowchart LR
@@ -132,9 +140,11 @@ is the most important simplification in the lab: one API server, one ArgoCD, one
 set of CRDs, one place to look.
 
 - Kubernetes v1.36.5+k3s1, containerd, Cilium VXLAN with kube-proxy.
-- Three server nodes; the MacBook is tainted so only Immich and the Redis HA replicas opt in with explicit tolerations.
-- Workloads are pinned where their hardware lives (media on the Intel box for
-  QuickSync and local storage; Immich on the MacBook; platform pieces anywhere).
+- Three server nodes, no taints: platform, media and quorum. Roles are enforced
+  by nodeSelector, not by the scheduler refusing work.
+- Workloads are pinned where their hardware lives: media on the Intel box for
+  QuickSync and local storage, Immich's Postgres and Redis on the ThinkCentre,
+  platform pieces wherever they land.
 - Ingress runs with two replicas; cloudflared connectors run on two nodes.
 - NodePorts are loopback-only by design; the LAN path exists only for the media
   UIs (Jellyfin/*arrs) because those apps refuse no-auth remote access but are
@@ -145,47 +155,100 @@ set of CRDs, one place to look.
 There are three storage stories, and confusing them is how data gets lost.
 
 **Cluster storage (Longhorn).** Application config and databases live on
-Longhorn volumes with two replicas. This is for state that must follow a pod to
-another node: ArgoCD, monitoring, app configs, small databases.
+Longhorn volumes with two replicas: 17 volumes, 89 GiB provisioned, 178 GiB
+scheduled once both copies are counted. This is for state that must follow a pod
+to another node — ArgoCD, monitoring, app configs, small databases.
 
-**Media pool (mergerfs).** Four disks across two hosts are unioned into a single
-~1.2 TB pool. The platform host exports its partitions over NFS; the media host
-unions all four. Media is re-downloadable and *not* backed up. This is explicit:
-the backup budget goes to configuration, credentials and photos, not to Linux
-ISOs and TV episodes.
+Five disks back it on three nodes:
 
-**Photo store (local).** Immich keeps its library and Postgres data on the
-MacBook's internal SSD. It is backed up by a database dump plus a file-level
-archive, not by replicating the disk.
+| Node | Disk | Path | Capacity |
+|------+------+------+----------|
+| platform | default | =/var/lib/longhorn= (inside the OS filesystem) | 98 G |
+| media | default | =/var/lib/longhorn= (inside the OS filesystem) | 98 G |
+| quorum | default | =/var/lib/longhorn= (inside the OS filesystem) | 98 G |
+| quorum | =data= | =/mnt/data=, a dedicated partition | 134 G |
+| platform | =nvme= | =/mnt/media-nvme=, a dedicated partition | 340 G |
+
+The two dedicated partitions exist because the auto-registered default disk on
+every node lives inside =/=, the filesystem that carries etcd and the container
+image store. On 2026-10-30 that was visible as the failure it is: one node had
+120 MiB of room for the next replica while logging 43% usage, because the alert
+compared usage to capacity and the scheduler decides on (free space - scheduled).
+A recording rule now exports that ratio per disk, and two alerts sit on it at 90%
+and 100%. Moving the remaining ~100 GiB off the OS filesystems is the open item in
+§18.
+
+**Media pool (mergerfs).** Three branches across two hosts are unioned into a
+single 826 G pool, 483 G free: two local partitions on the media host and one
+partition on the platform host exported over NFS. It was four branches until
+2026-10-28, when an empty one was retired and became the dedicated Longhorn disk
+above. Media is re-downloadable and *not* backed up: the backup budget goes to
+configuration, credentials and photos, not to Linux ISOs and TV episodes.
+
+**Photo store (Longhorn).** Immich's library (30 GiB) and Postgres (10 GiB) are
+Longhorn volumes, so the pair can reschedule between nodes. Only the
+machine-learning cache stays on =local-path=, because it is rebuildable. Backed
+up as a database dump plus a file-level archive, not by replicating the disk.
 
 * 6. GitOps and delivery
 
-Everything that can be declared is declared. The flow is:
+Everything that can be declared is declared. There are **four pipelines**, and they
+use different tools on purpose, because they have different blast radii:
 
-1. An application repo merges to =main=.
-2. GitHub Actions builds a container image and pushes it to GHCR.
-3. The GitOps repo references the image; ArgoCD (auto-sync, self-heal, prune)
-   applies it.
-4. Cluster state drift is corrected automatically, and an alert fires if an app
-   stays out of sync or unhealthy.
+| What | Tool | State lives in | A deploy is |
+|------+------+----------------+-------------|
+| Cluster workloads | ArgoCD | git (=bakuran-gitops=) | a pull, with self-heal and prune |
+| This website | GitHub Actions → GHCR | git (=bismigel-site=) | an image tag bump PR, then ArgoCD |
+| Hosts (NixOS) | deploy-rs | git (=bakuran-infra=) | a push over SSH, with magic rollback |
+| Cloudflare edge | OpenTofu | R2, =opentofu/cloudflare/terraform.tfstate= | =tofu apply= from the platform node |
 
 #+begin_src mermaid
 flowchart TB
   CH["Change"] --> PR["Pull request"]
-  PR -->|"review + merge"| APP["App repo main"]
+  PR -->|review + merge| APP["App repo main"]
   APP --> CI["GitHub Actions<br/>test · build · push"]
   CI --> IMG["GHCR image<br/>immutable tag"]
-  IMG --> GIT["GitOps repo<br/>manifests + image tag"]
+  IMG -->|workflow bumps the tag| GIT["GitOps repo<br/>manifests + image tag"]
   GIT --> ARGO["ArgoCD<br/>auto-sync · self-heal · prune"]
   ARGO --> K8S["k3s cluster"]
 
-  INFRA["bakuran-infra<br/>NixOS + edge config"] --> DEP["deploy-rs<br/>magic rollback"]
+  SITE["org/*.org"] --> BUILD["pandoc → hugo → image"]
+  BUILD --> IMG
+
+  INFRA["bakuran-infra<br/>NixOS config"] --> DEP["deploy-rs<br/>magic rollback"]
   DEP --> HOSTS["Hosts<br/>kernel · services · cloudflared"]
+
+  TF["opentofu/cloudflare"] --> TOFU["tofu plan + apply"]
+  TOFU --> CF["Cloudflare edge<br/>DNS · tunnel · Access · TLS"]
 #+end_src
 
-NixOS hosts are separate: they are built from =bakuran-infra= and deployed with
-=deploy-rs=, with magic rollback. The OS is not managed by ArgoCD, and that is
-intentional: the cluster should not be able to brick its own hosts.
+**Cluster workloads.** An app repo merges to =main=; GitHub Actions builds and
+pushes an image to GHCR with an immutable tag; the workflow rewrites that tag in
+the GitOps manifest, pushes a branch and opens a pull request; ArgoCD reconciles
+the merged commit. CI writes only an image tag and never holds a kubeconfig — the
+manifest is the only interface between CI and the cluster.
+
+**This website.** The same shape with a build in the middle: =org/*.org= is the
+source, =scripts/convert.sh= runs pandoc, hugo builds =public/=, the image is
+pushed to GHCR as =main-<UTC timestamp>-<sha>=, and the workflow bumps
+=deploy/k8s/deployment.yaml= in a PR that auto-merges. Manifest-only paths are
+excluded from re-triggering the build, and runs are serialised so two concurrent
+tag bumps cannot conflict on the same line.
+
+**Hosts.** NixOS is built from =bakuran-infra= and deployed with =deploy-rs=, with
+magic rollback. The OS is not managed by ArgoCD, deliberately: the cluster should
+not be able to brick its own hosts.
+
+**The edge.** Cloudflare is OpenTofu, state in R2 with native locking
+(=use_lockfile=, no separate lock table), applied by hand from the platform node.
+It replaced a daily =sync.sh= run that rewrote DNS, tunnel routes, Access
+applications and zone settings imperatively, incrementally and unreviewably. The
+migration was one import at a time, check with =plan= that the import produced no
+diff, then apply. Two things did not import cleanly and are handled after the
+import: Access application timeouts, and the R2 bucket lifecycle, which has no
+import and had to be adopted instead. A four-line change is now a reviewable
+diff, which is how turning off IPv6 compatibility at the edge became a small
+commit rather than a dashboard edit nobody can audit.
 
 Reproducibility rules that came out of real failures:
 
@@ -216,7 +279,9 @@ Reproducibility rules that came out of real failures:
     Redis/sentinel pods and three HAProxy pods. The per-pod announce Services are
     made headless by a Helm post-renderer, because the chart otherwise puts
     sentinel behind a ClusterIP.
-  - *Hermes*: in-cluster AI agent and SRE; read-only tools and guardrails.
+  - *Duwende*: in-cluster AI agent and SRE; read-only tools and guardrails. The
+    namespace and the ArgoCD app are =duwende=; the upstream workload, image and
+    dashboard still carry the Hermes name.
   - *Homepage*: a single landing page for every service.
 
 * 8. Media platform
@@ -237,8 +302,11 @@ transcoding uses QuickSync and media reads stay local.
 
 * 9. Photos
 
-Immich runs split: the server, Postgres and Valkey on the MacBook; the
-machine-learning container on the platform host. Photo backup from phones is the
+Immich runs split: the server, Postgres and Valkey sit on the quorum node, the
+machine-learning container runs wherever it lands, and the library itself is on
+Longhorn. All of it moved off the MacBook in the 2026-10-28 migration, which is
+also when the Postgres data directory was copied cold (a live copy is how you get
+a database that looks fine until it does not). Photo backup from phones is the
 primary use, so the public hostname is not Access-gated; Immich's own accounts
 and app passwords are the control. Accounts mirror the family's Jellyfin users.
 
@@ -301,8 +369,9 @@ of the home and yard. The lab already has a bakuran, so naming its resident
 helper Duwende completes the metaphor. It is meant to be a helpful, slightly
 mischievous presence in the yard, not a product name.
 
-The agent is an in-cluster AI SRE. The namespace and ArgoCD app are being renamed
-to `duwende`; the upstream workload and dashboard still use the Hermes name.
+The agent is an in-cluster AI SRE. The namespace and ArgoCD app are `duwende`;
+the upstream workload, image and dashboard still use the Hermes name, so a
+=kubectl get pods -n duwende= shows =hermes-*= and that is expected, not drift.
 
 It runs as a Deployment with a 10Gi PVC at `/opt/data` for config, sessions,
 memory and cron. It uses DeepSeek `deepseek-chat`. The dashboard is
@@ -340,9 +409,19 @@ Prometheus scrapes the cluster and the edge paths that matter. Alerts route to
 Telegram through Alertmanager, grouped so a single failure does not become ten
 messages.
 
-What is watched today:
+59 rules live in two ConfigMaps and 11 dashboards each answer one question. What
+is watched:
 
 - Node and target availability, disk fill, memory pressure.
+- Longhorn: robustness per volume, and per disk the ratio of promised bytes to
+  free bytes — the number that decides whether the next rebuild can fit. Bytes
+  still held on an OS filesystem stay visible as a dashboard panel rather than an
+  alert, because all three nodes keep a default disk and a permanently true
+  invariant is a gauge, not a page.
+- WireGuard handshake age and data path on the media node. node-exporter has no
+  collector for it, so a host timer writes the textfile.
+- The Cloudflare edge from a small REST exporter: tunnel and connector state,
+  zones, TLS, and its own snapshot age, so a silent exporter is visible too.
 - ArgoCD application drift and health (after 15 minutes).
 - Logins to the edge and to Jellyfin/Immich (new sessions, not every request).
 - Backups: unit failure, staleness (newest archive older than 36 hours), and a
@@ -444,16 +523,28 @@ what make the next rebuild boring. That is the goal.
 | Drift alerts never fired | Scraped the ArgoCD Service; only the leader has app metrics | Scrape controller endpoints |
 | Config rejected after restart | Manual YAML indentation | Validate configs before merge; prefer generated files |
 | Image pull failures after pinning | Guessed tag (=v0.33.2= vs =0.33.2=) | Verify tags/digests before merging |
+| Node stopped answering its own LAN address after a tunnel change | =wg-quick= rules got kernel-assigned priorities above =local=, from a boot race with Cilium's rule at 9 | Pin =pref 32765= and =pref 32764=, and never restart the tunnel to "fix" it |
+| Jellyfin buffered for off-LAN clients only | IPv6 packet loss to the edge while the client preferred AAAA; Happy Eyeballs covers browsers, not TV apps | Turn IPv6 compatibility off at the edge, after measuring both families |
+| A replica could not be placed while capacity looked free | The alert compared usage to capacity; the scheduler decides on free space minus promised | Per-disk ratio recording rule, alerts at 90% and 100% |
+| A node came back advertising an address no peer could reach | k3s derived its node IP from the default route, which is the tunnel | Pin =--node-ip= and =--advertise-address= |
+| Redis HA pod stuck in =Init:0/1= | The chart made each announce Service a ClusterIP, so sentinel monitored a VIP that never converged | Post-renderer sets =clusterIP: None= |
+| The NixOS installer could not kexec | The live image set =kexec_load_disabled=1=, a one-way switch | Install Nix on the live system and run =nixos-anywhere --phases disko,install= |
+| Removing a node left pods =Pending= | Node-local volumes, PV =nodeAffinity= and a nodeSelector in three objects | Move state to Longhorn first; treat the node name as an interface |
 
 * 18. Known limitations and next
 
 - Branch protection is on for public repos; private repos on the free plan still
-  rely on the workstation hook.
+  rely on the workstation hook. Moving the GitOps repo to a host with required
+  checks (Forgejo) is planned and deliberately deferred.
   - HSTS is enforced at Cloudflare. Rate limiting and MFA on Access are limited by
     the free plan and the identity provider.
   - Zero-touch rebuild is not complete: bootstrap is one command, not zero.
   - SLOs cover the public probes and error budgets; internal services still rely on
     symptom-based alerts.
+- **~100 GiB of Longhorn replicas still sit on the three OS filesystems**, inside
+  =/var/lib/longhorn=. The dedicated disks exist and have room; what is missing is
+  the evacuation. The ratio alerts exist so this stays visible, and the move is the
+  next storage change.
 - No secrets rotation schedule.
 - Media is unbacked by design; the trade-off is documented, not solved.
 - Full DR rehearsal (rebuild a host, restore everything) is still a manual plan.
@@ -462,6 +553,7 @@ what make the next rebuild boring. That is the goal.
 
 | Version | Date | Change |
 |---------+------+--------|
+| 2026-10-31 | 2026-10-31 | ThinkCentre replaced the MacBook as the quorum member and the MacBook left the cluster; Immich moved to Longhorn; Longhorn disk layout, headroom alerting and the open evacuation item; Duwende naming; delivery section rewritten around four pipelines and the OpenTofu edge; failure table gained seven rows |
 | 2026-10-20 | 2026-10-20 | Redis HA corrected to the Helm chart post-renderer path; Cilium VXLAN, Kubernetes version, HSTS and SLO status updated |
 | 2026-10-18 | 2026-10-18 | Hermes SRE details; current edge monitoring and dashboards; image-pinning status clarified |
 | 2026-10-17 | 2026-10-17 | First definitive version: full architecture, backups/verification, security posture, failure modes |

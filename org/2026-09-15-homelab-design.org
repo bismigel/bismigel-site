@@ -113,7 +113,7 @@ Each box runs k3s. k3s ships Traefik and ServiceLB; I disabled both and run
 ingress-nginx, not as a judgement on Traefik but for one ingress controller with explicit
 config that I can trace a request through.
 
-* ArgoCD
+* Delivery: four pipelines
 
 The desired state lives in git, and one in-cluster ArgoCD reconciles it. GitOps was the
 biggest mental shift: the cluster pulls toward git instead of me pushing commands at it.
@@ -144,6 +144,38 @@ to git, and ArgoCD owns the cluster. The workflow has =contents: write= and
 =packages: write=, and no kubeconfig. This site auto-merges the tag PR; the app template
 pushes the bump directly. Either way, the manifest is the only interface between CI and
 the cluster.
+
+That is one of four pipelines, and they use different tools on purpose because they have
+different blast radii:
+
+| What | Tool | State lives in | A deploy is |
+|------+------+----------------+-------------|
+| Cluster workloads | ArgoCD | git (=bakuran-gitops=) | a pull, with self-heal and prune |
+| This website | GitHub Actions → GHCR | git (=bismigel-site=) | an image tag bump PR, then ArgoCD |
+| Hosts (NixOS) | deploy-rs | git (=bakuran-infra=) | a push over SSH, with magic rollback |
+| Cloudflare edge | OpenTofu | R2 | =tofu apply= from the platform node |
+
+#+begin_src mermaid
+flowchart TB
+  CH["Change"] --> PR["Pull request"]
+  PR -->|review + merge| APP["App repo main"]
+  APP --> CI["GitHub Actions<br/>test · build · push"]
+  CI --> IMG["GHCR image<br/>immutable tag"]
+  IMG -->|workflow bumps the tag| GIT["GitOps repo"]
+  GIT --> ARGO["ArgoCD"]
+  ARGO --> K8S["k3s cluster"]
+  SITE["org/*.org"] --> BUILD["pandoc → hugo → image"]
+  BUILD --> IMG
+  INFRA["bakuran-infra"] --> DEP["deploy-rs"]
+  DEP --> HOSTS["Hosts"]
+  TF["opentofu/cloudflare"] --> TOFU["tofu plan + apply"]
+  TOFU --> CF["Cloudflare edge"]
+#+end_src
+
+None of the four holds a kubeconfig: the cluster only ever pulls. The OS is deployed
+separately because the cluster should not be able to brick its own hosts, and the edge is
+separate because a mistake there is public. The build for this site and the migration of
+the edge into OpenTofu each have their own post.
 
 * Secrets
 
