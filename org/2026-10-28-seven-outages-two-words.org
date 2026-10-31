@@ -160,7 +160,16 @@ numbering*: in the failing case the tunnel's two rules sit at 98 and 99, which i
 delivered locally. The node stops answering its own IP. ARP still works, because ARP is
 layer 2, and nothing in the logs says anything.
 
-** Why 98 and 99
+*#+begin_src mermaid
+flowchart TB
+  pkt["packet to the node's own LAN address"] --> look{"which rule wins?"}
+  look -->|rules at 32764 / 32765| local["local table<br/>delivered to the host"]
+  look -->|rules at 98 / 99| main["main table<br/>matches the connected /24"]
+  main --> out["sent OUT of the interface"]
+  out --> dead["node stops answering its own IP<br/>ARP still works, no log line"]
+#+end_src
+
+* Why 98 and 99
 
 =wg-quick= adds its rules with =ip rule add= and no explicit priority. The kernel picks one
 in =fib_default_rule_pref()=

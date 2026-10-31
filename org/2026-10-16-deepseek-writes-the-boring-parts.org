@@ -36,9 +36,10 @@ It invents a Helm value. It assumes a setting that changed two versions ago. It 
 file that looks fine and quietly does the wrong thing for *this* cluster, because it has no
 idea what this cluster is. All three have happened.
 
-So: it writes a draft, and I decide. Nothing reaches the cluster before I read it. Anything
-about secrets, the edge, or the shape of my data is my job. I think of it as a fast,
-tireless, slightly overconfident junior.
+So: it writes a draft, and I decide. Nothing reaches the cluster before a check has seen
+it: =nix flake check= for host config, =kubectl diff= for manifests, and a throwaway guest
+when the change could strand a node. Anything about secrets, the edge, or the shape of my
+data is my job. I think of it as a fast, tireless, slightly overconfident junior.
 
 One rule I do not bend: the model never sees a secret. It does not need the value of
 anything to write code that *uses* it, and the same goes for prompts. A config I paste or a
@@ -160,8 +161,8 @@ model is not the interesting part. The tools and the boundaries are.
 
 While setting this up I ran a job that pushed placeholder values into the secret store on a
 timer. Later I put the real values in, but the job kept running, and on its next run it
-wrote the placeholders back over the real values. The agent then spent an evening being
-confidently useless while I spent it thinking the tools were broken. The tools were fine.
+wrote the placeholders back over the real values. The agent then answered confidently from
+wrong inputs for an evening while I blamed the tools. The tools were fine.
 
 The lesson is not about agents. Anything that writes to your source of truth on a timer
 will one day do it at the worst moment. I still do not have a good way to stop that.

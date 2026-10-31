@@ -52,19 +52,23 @@ The exception is anything that happens as an event instead of a value. A failed 
 an event; there is no useful gauge that says "the backup did not run". Those alerts are
 pushed to Alertmanager directly.
 
-#+begin_example
-node-exporter       :9100   host metrics, every node
-kube-state-metrics  :8080   Kubernetes object state
-etcd proxy          :9101   control-plane internals
-kepler              :9102   energy
-argocd              metrics  GitOps state
-edge exporter       :9182   Cloudflare
-        │
-        ▼
-   Prometheus  ──pull every 15s──▶  Grafana (five dashboards)
-        │
-        └──▶ Alertmanager ──▶ Telegram
-#+end_example
+#+begin_src mermaid
+flowchart LR
+  subgraph targets["scrape targets"]
+    ne["node-exporter :9100"]
+    ksm["kube-state-metrics :8080"]
+    etcd["etcd proxy :9101"]
+    kep["kepler :9102"]
+    argo["argocd metrics"]
+    edgeexp["edge exporter :9182"]
+  end
+
+  targets -->|pull every 15s| prom["Prometheus<br/>rules, 1 GB history"]
+  prom --> graf["Grafana<br/>five dashboards"]
+  prom --> am["Alertmanager"]
+  am --> tg["Telegram"]
+  timers["host systemd timers"] -->|push on failure| am
+#+end_src
 
 ** Hosts: node-exporter, with one important flag
 

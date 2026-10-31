@@ -12,6 +12,14 @@ repositories. The workflow can be red and the merge button still works. For a on
 lab that is a discipline problem; as a public signal it is worse, because the repo would
 advertise guardrails it cannot enforce.
 
+#+begin_src mermaid
+flowchart LR
+  pr["pull request"] --> ci["CI: YAML, schemas, PromQL"]
+  ci -->|red| gate{"does it block the merge?"}
+  gate -->|GitHub Free private repo, no| merged["bad merge goes in<br/>the check was advisory"]
+  gate -->|required checks: paid plan or Forgejo| blocked["merge blocked"]
+#+end_src
+
 * What I want from a Git host
 
 A private remote I control; pull requests; required checks that actually block; no

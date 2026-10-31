@@ -1,7 +1,7 @@
 #+TITLE: IPv6 packet loss, not slow DNS: why Jellyfin buffered off the LAN
 #+DATE: 2026-10-22T22:15:00-04:00
 #+FILETAGS: homelab:ipv6:cloudflare:jellyfin:network
-#+DESCRIPTION: A Jellyfin buffering report that looked like slow DNS turned out to be intermittent IPv6 packet loss to the Cloudflare edge. How the measurement found it, why it cost 8x of video bitrate, the server bitrate cap hiding underneath it, and what actually limits the lab now.
+#+DESCRIPTION: A buffering report that looked like slow DNS was intermittent IPv6 loss to the edge: six runs to find it, 8x of bitrate lost, and a server cap hiding underneath.
 
 Buffering from outside the LAN is the kind of report that invites guessing. The
 usual suspects are the transcode, the disk, or the network. This time the
@@ -104,18 +104,17 @@ alive.
 
 * The shape of the path
 
-#+begin_src text
-  dual-stack client
-        |
-        |  1. DNS: A and AAAA, both answered (proxied CNAME to the tunnel)
-        v
-  Cloudflare anycast     172.64.80.1        /  2606:4700:130:436c:...
-        |                      |                        |
-        |  2. client prefers AAAA  ->  loss here -> 1 s connect, 5 s DNS retry
-        |                      |                        |
-        |  3. tunnel connector (cloudflared on .81 and .82, IPv4/QUIC)
-        v
-  ingress-nginx :32080  ->  Jellyfin pod on .81  ->  /mnt/media
+#+begin_src mermaid
+flowchart TB
+  client["dual-stack client<br/>prefers AAAA"] --> dns["DNS: A and AAAA both answered<br/>proxied CNAME to the tunnel"]
+  dns --> lossy["AAAA path<br/>IPv6 loss: 1 s connect, 5 s DNS retry"]
+  dns --> clean["A path<br/>20 ms connect, every time"]
+  lossy --> edge["Cloudflare anycast"]
+  clean --> edge
+  edge --> tun["cloudflared connector<br/>IPv4 / QUIC either way"]
+  tun --> ing["ingress-nginx :32080"]
+  ing --> jf["Jellyfin pod"]
+  jf --> disk["/mnt/media"]
 #+end_src
 
 The tunnel is not part of the problem. The connector talks to Cloudflare over

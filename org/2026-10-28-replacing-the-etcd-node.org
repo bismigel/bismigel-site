@@ -135,6 +135,14 @@ The new node was =.84=, outside that range. I had merged the widened rule but no
 deployed it, so =MemberAdd request timed out= for several minutes while every
 node looked perfectly healthy. The firewall was doing exactly what it said.
 
+#+begin_src mermaid
+flowchart LR
+  a["3 members<br/>quorum 2"] -->|add the new node| b["4 members<br/>quorum 3"]
+  b -->|stop k3s on the old node| c["3 of 4 alive<br/>still quorate"]
+  c -->|etcdctl member remove| d["3 members<br/>quorum 2"]
+  d --> e["never fewer than 3 available<br/>no window without quorum"]
+#+end_src
+
 * The node that refused to become a worker
 
 The MacBook was not empty. It held *Immich's library and Postgres* on

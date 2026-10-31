@@ -67,8 +67,8 @@ Here is the honest part: I did not want to partition a disk by hand, install Nix
 then make the cluster accept it — three things to get wrong in one night. So I gave an AI
 assistant the MacBook's SSH key and a one-line instruction: install NixOS, match the other
 two machines, and join the cluster. It erased the disk, installed NixOS over SSH, gave the
-machine a fixed address and joined the cluster. I watched, and I understood maybe a third
-of it.
+machine a fixed address and joined the cluster. I watched, I understood maybe a third of
+it, and then I read the resulting config against the other two hosts before I trusted it.
 
 ** What bit me
 

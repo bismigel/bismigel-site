@@ -157,7 +157,23 @@ On the test cluster, announce then resolved to a pod IP, Redis reached =3/3=, HA
 reached =3/3=, and deleting the master made sentinel promote another pod while the old
 master rejoined as a replica.
 
-** Making it repeatable
+*#+begin_src mermaid
+flowchart TB
+  subgraph chart["chart default: announce Service is ClusterIP"]
+    svc["argocd-redis-ha-announce-0<br/>type ClusterIP"] --> vip["Service VIP"]
+    vip --> sen["sentinel monitors the VIP"]
+    sen --> loop["split-brain container<br/>never converges"]
+    loop --> nr["pod stays Init:0/1<br/>sentinel Service has no endpoint"]
+  end
+
+  subgraph fixed["post-renderer: clusterIP None"]
+    hl["announce Service<br/>clusterIP: None"] --> pip["pod IP"]
+    pip --> sen2["sentinel monitors the pod"]
+    sen2 --> ok["Redis 3/3, HAProxy 3/3"]
+  end
+#+end_src
+
+* Making it repeatable
 
 A manual =kubectl patch= would be undone by the next Helm upgrade, and the chart has no
 value for this, so I added a Helm post-renderer that rewrites only the =redis-ha= announce

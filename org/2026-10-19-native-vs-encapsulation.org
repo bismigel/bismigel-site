@@ -18,6 +18,20 @@ start because of something left behind by the first.
 Both keep kube-proxy here. Cilium handles the CNI, policy and visibility; kube-proxy still
 handles ClusterIP services.
 
+#+begin_src mermaid
+flowchart TB
+  subgraph native["native routing: the underlay must route pod CIDRs"]
+    n1["pod 10.42.1.7"] --> n2["node B routing table<br/>10.42.2.0/24 via node C"]
+    n2 --> n3["node C delivers<br/>straight to the pod"]
+  end
+
+  subgraph vxlan["VXLAN: nodes only need IP reachability"]
+    v1["pod 10.42.1.7"] --> v2["wrap in UDP<br/>vxlan device, port 8472"]
+    v2 --> v3["node C decapsulates<br/>MTU 1450"]
+    v3 --> v4["pod 10.42.2.9"]
+  end
+#+end_src
+
 * Native routing
 
 Native routing hands non-local packets to the Linux routing table. With

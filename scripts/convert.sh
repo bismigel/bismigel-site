@@ -15,6 +15,10 @@ cat > content/posts/_index.md <<EOF
 ---
 title: "${SITE_TITLE}"
 ---
+
+The build log is the progression: design, first cluster, the edge, observability, and the
+incidents that changed them. Everything else is a standalone guide for one decision or one
+failure. Newest first below; [[/][the home page]] has the reading order.
 EOF
 
 count=0
@@ -77,6 +81,32 @@ for f in org/*.org; do
 done
 
   echo ">> converted ${count} org file(s) into content/posts/"
+
+  # ---- home page: org/index.org -> content/_index.md ----
+  # The landing page is Org like everything else, so the "start here" list can be
+  # edited without touching a layout. layouts/index.html renders .Content above the
+  # recent-posts list; without this file the home page is just a date-sorted index,
+  # which is the worst possible front door for someone arriving cold.
+  if [ -f org/index.org ]; then
+    imeta() { grep -iE "^#\\+$1:" org/index.org | head -1 | sed -E "s/^#\\+[^:]+:[[:space:]]*//I" || true; }
+    iyaml() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+    ititle="$(imeta title)"; isummary="$(imeta summary)"
+    isrc="$(mktemp)"; imd="$(mktemp)"
+    grep -viE '^#\+(title|summary):' org/index.org > "$isrc"
+    "$PANDOC" -f org -t gfm --wrap=none "$isrc" -o "$imd"
+    rm -f "$isrc"
+    sed -i "s/\\\\'/\'/g" "$imd"
+    {
+      echo "---"
+      echo "title: \"$(iyaml "$ititle")\""
+      [ -n "$isummary" ] && echo "summary: \"$(iyaml "$isummary")\""
+      echo "---"
+      echo
+      cat "$imd"
+    } > content/_index.md
+    rm -f "$imd"
+    echo ">> converted home page (org/index.org)"
+  fi
 
   # ---- projects: org/projects/*.org -> content/projects/<slug>/index.md ----
   # Project front matter is explicit (Hugo needs keys like externalUrl/summary

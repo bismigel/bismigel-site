@@ -1,7 +1,7 @@
 #+TITLE: Media quality preferences: size caps, quality profiles and the disk rebalance that forced them
 #+DATE: 2026-10-24T21:30:00-04:00
 #+FILETAGS: homelab:media:mergerfs:recyclarr:opentofu:gitops
-#+DESCRIPTION: How a 68G Remux-2160p filled a mergerfs branch and broke book imports, why the pool looked healthy while a disk was at 99%, and how the fix became declarative: recyclarr for quality profiles, OpenTofu for size caps.
+#+DESCRIPTION: A 68G Remux-2160p filled one mergerfs branch and broke book imports; the fix became declarative size caps and quality profiles.
 
 The media pool reported 71% used. One disk inside it was at 99%. Nothing on a
 dashboard disagreed with anything else, until LazyLibrarian started writing book
@@ -45,6 +45,16 @@ WARNING: eBook dir ['/books'] not writeable, using /config:
 
 The book was in the database. The file was in the wrong place. The UI said the
 download worked.
+
+#+begin_src mermaid
+flowchart TB
+  pool["/mnt/media<br/>mergerfs union, 71% used"] --> b1["branch: local nvme"]
+  pool --> b2["branch: local sda"]
+  pool --> b3["branch: remote sda on the other host"]
+  b1 --> full["99% full"]
+  full --> epmfs["category.create=epmfs<br/>writes only where the dir already exists"]
+  epmfs --> enospc["creates fail under 4G minfreespace<br/>book imports break, pool looks fine"]
+#+end_src
 
 * Rebalancing without losing anything
 
