@@ -47,12 +47,17 @@ failures. The constraints shaped almost every decision:
 
 | Role | Machine | Specs | Runs |
 |------+---------+-------+------|
-| Platform | AMD desktop (=sitaw-amd=) | Ryzen 5 4600G, 6C/12T, 16 GB, 480 GB KLEVV NVMe (98 G root + 340 G media) and 500 GB WD SATA (458 G media) | Control plane + etcd, ArgoCD, ingress, edge connectors |
-| Media | Intel mini-PC (=calamansi-intel=) | i5-7500T, 4C/4T, 16 GB, 256 GB Toshiba NVMe (98 G root + 135 G media) and 256 GB Micron SATA (234 G media) | Jellyfin and the *arr stack, QuickSync transcoding |
-| Quorum | ThinkCentre M900 Tiny (=patola-thinkcentre=) | i5-6500T, 4C/4T, 16 GB, 256 GB SanDisk SATA SSD (1 G ESP, 100 G root, 135 G Longhorn data) | Third etcd member; Immich Postgres and Redis |
-| Staging | 2012 MacBook Pro (=kamatis-mbp=) | i5-3210M, 2C/4T, 16 GB, 240 GB WD SATA SSD | Not a cluster member since 2026-10-28; hosts the KVM guests that rehearse risky changes |
-| Admin | Framework Laptop 16 | Ryzen 7 7840HS, 8C/16T, 16 GB, 256 GB NVMe | NixOS + Home Manager, deploys, dead-man's switch |
+| Platform | Custom ITX build, Gigabyte B450 I AORUS PRO WIFI | Ryzen 5 4600G, 6C/12T, 16 GB, 480 GB KLEVV NVMe (98 G root + 340 G media) and 500 GB WD SATA (458 G media) | Control plane + etcd, ArgoCD, ingress, edge connectors |
+| Media | HP EliteDesk 800 G3 Desktop Mini, 35 W | i5-7500T, 4C/4T, 16 GB, 256 GB Toshiba NVMe (98 G root + 135 G media) and 256 GB Micron SATA (234 G media) | Jellyfin and the *arr stack, QuickSync transcoding |
+| Quorum | Lenovo ThinkCentre M700 Tiny, 10HY002AUS | i5-6500T, 4C/4T, 16 GB, 256 GB SanDisk SATA SSD (1 G ESP, 100 G root, 135 G Longhorn data) | Third etcd member; Immich Postgres and Redis |
+| Staging | Apple MacBookPro9,2 (13-inch, mid-2012) | i5-3210M, 2C/4T, 16 GB, 240 GB WD SATA SSD | Not a cluster member since 2026-10-28; hosts the KVM guests that rehearse risky changes |
+| Admin | Framework Laptop 16 (AMD Ryzen 7040 series) | Ryzen 7 7840HS, 8C/16T, 16 GB, 256 GB NVMe | NixOS + Home Manager, deploys, dead-man's switch |
 | Edge | Cloudflare | - | Tunnel, DNS, TLS, Zero Trust Access, R2 |
+
+Vendor and model come from SMBIOS (=/sys/devices/virtual/dmi/id=) and the CPU
+from the CPUID brand string (=/proc/cpuinfo=, confirmed by the kernel's =smpboot=
+line), not from memory: the first version of this table called the ThinkCentre an
+M900, and it is an M700.
 
 Every machine is 1 GbE on a flat LAN, which is the number that matters most: a
 replica rebuild moves ~10 GB and is bounded by that link, not by the NVMe under it.
@@ -76,7 +81,7 @@ flowchart TB
     D["SABnzbd · qBittorrent"]
     B["Kavita · LazyLibrarian"]
   end
-  subgraph Q["Quorum: ThinkCentre M900 Tiny"]
+  subgraph Q["Quorum: ThinkCentre M700 Tiny"]
     K3["k3s server · etcd"]
     IM["Immich Postgres · Redis"]
   end
