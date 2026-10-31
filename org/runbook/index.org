@@ -42,6 +42,7 @@ Pick a task from the list below, or start with *Before you start*.
 | Remove something ArgoCD manages                     | 18   |
 | A secret has drifted from Bitwarden                 | 19   |
 | The API VIP answers from two nodes                  | 20   |
+| Longhorn has nowhere left to put a replica          | 21   |
 
 Pages 11, 12 and 14 overlap on purpose and are read together: 11 triages the
 symptom, 12 is the pre-flight that stops it happening, 14 is the recovery when it
@@ -50,6 +51,12 @@ has already happened.
 Pages 17, 18 and 19 are the three ways a *removal* goes wrong: 17 is the guardrail
 that stops you deleting state, 18 is what ArgoCD does and does not clean up when an
 Application goes away, 19 is the secret that quietly stopped matching its source.
+
+Page 21 is the fourth "state nobody reconciles" case, and the one that bit on
+2026-10-30: Longhorn's per-disk registration, tags and scheduling flags live only
+in the cluster's custom resources. Git does not own them, so a rebuilt node comes
+back with a disk Longhorn did not have before, and nothing complains until a
+disk is full.
 
 * Before you start
 

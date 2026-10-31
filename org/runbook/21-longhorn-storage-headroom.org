@@ -1,0 +1,244 @@
+#+TITLE: Longhorn has nowhere left to put a replica
+#+SUMMARY: How to read the per-disk headroom Longhorn never exported, and the four steps that move replicas off the OS filesystem without losing a volume.
+#+GROUP: Recovery
+
+On 2026-10-30 =sitaw-amd= had *120 MiB* of room for the next replica on a disk
+already holding 45 G of them. Every alert said the cluster was fine, because the
+Longhorn alerts compare usage to capacity — and that disk was 43% "used".
+
+Nothing was broken yet. What was broken is that the next rebuild on that node
+would have failed, and that disk is =/var/lib/longhorn=, a directory on the
+filesystem that carries etcd and the containerd image store. Filling it does not
+degrade a volume. It takes the control plane down.
+
+* The number that was missing
+
+Longhorn admits a replica to a disk when *free space minus promised space* is
+positive. It exports the scheduled bytes per /node/ only, so per disk the figure
+was invisible; =longhorn_disk_usage_bytes= is what is on the disk now, not what is
+promised to it.
+
+The recording rule =longhorn:disk_scheduled_to_free_ratio= rebuilds it. It joins
+=longhorn_replica_info= (which carries the disk path and the volume) with the
+volume size, then divides by the free space of the filesystem that path lives on:
+
+#+begin_src sh
+curl -s -G 'http://127.0.0.1:30909/api/v1/query' \
+  --data-urlencode 'query=longhorn:disk_scheduled_to_free_ratio' \
+  | jq -r '.data.result[] | "\(.metric.node) \(.metric.disk_path) \(.value[1])"'
+#+end_src
+
+What it said on 2026-10-30, after the image and store cleanup in step 1:
+
+| Node              | Disk path                 | Promised | Free on fs | Ratio |
+|-------------------+---------------------------+----------+------------+-------|
+| sitaw-amd         | =/var/lib/longhorn= (root fs) | 45 G | 53 G   | *0.84* |
+| patola-thinkcentre | =/var/lib/longhorn= (root fs) | 55 G | 68 G  | *0.81* |
+| patola-thinkcentre | =/mnt/data= (dedicated)   | 34 G     | 121 G      | 0.28  |
+| sitaw-amd         | =/mnt/media-nvme= (dedicated) | 39 G  | 319 G      | 0.12  |
+| calamansi-intel   | =/var/lib/longhorn= (root fs) | 5 G   | 58 G       | 0.09  |
+
+The two 0.8 rows are the problem: /node/-level capacity looked comfortable (767 G
+raw) while 105 G of the 178 G scheduled sat on operating-system disks.
+
+* Which alert, what it means
+
+| Alert | Sev | Means | Do |
+|-------+-----+-------+----|
+| =LonghornDiskSchedulingHeadroomLow= | warn | >90% of a disk's remaining free space is promised to replicas, for an hour | this page, step 2 and 3 |
+| =LonghornDiskSchedulingOverCommitted= | crit | >100%: more promised than free, so a rebuild cannot be placed | step 2 *now*; a rebuild here will fail |
+| =LonghornDiskStorageLow= | warn | actual usage >90% of capacity | step 1, then step 3 |
+| =RootFilesystemDaysToFull= | warn | the root filesystem is projected to fill inside 7 days | step 1; check image store growth |
+
+*There is no longer an alert for "replicas are on the root filesystem".* It was
+written, deployed, and removed the same day (2026-10-30): every node in this cluster
+keeps replicas under =/var/lib/longhorn=, so it fired on all three immediately and
+would have stayed red until step 4 was done — a condition that is permanently true is
+a panel, not a page. The standing fact lives in the *Longhorn on OS filesystems* panel
+on the Longhorn dashboard, in =NEXT-STEPS.md= as the migration decision, and in the
+weekly =docs-verify= disk-inventory check. What pages is the pair above, which say
+when the situation starts *costing redundancy* rather than merely existing.
+
+* Step 1 — reclaim what is cheap first
+
+Two things grow on the OS filesystems on their own. Reclaim them before moving any
+data, because it changes how much you have to move:
+
+#+begin_src sh
+for h in 192.168.2.80 192.168.2.81 192.168.2.82; do
+  ssh root@$h 'k3s crictl rmi --prune; nix-collect-garbage --delete-older-than 14d'
+done
+#+end_src
+
+| Node | Before | After | Reclaimed |
+|------+--------+-------+-----------|
+| calamansi-intel | 58 G (62%) | 38 G (41%) | 20 G: 147 to 36 images, 61 generations |
+| sitaw-amd | 53 G (57%) | 40 G (43%) | 13 G: 161 to 42 images, 74 generations |
+| patola-thinkcentre | 33 G (36%) | 25 G (27%) | 8 G: 49 to 36 images |
+
+kubelet only garbage-collects images at 85% disk usage, so dead images are parked
+on the node indefinitely. That is 13-16 G per node here, replaced by nothing.
+
+This bought =sitaw-amd= 13 G of headroom instead of 120 MiB. It did not fix the
+shape of the problem: Longhorn is still storing replicas on the OS filesystem.
+
+* Step 2 — stop new placements
+
+Turn off scheduling on the disk that is out of room. Nothing moves; the point is
+that nothing else lands there while you work.
+
+#+begin_src sh
+kubectl -n longhorn-system patch nodes.longhorn.io sitaw-amd --type=merge \
+  -p '{"spec":{"disks":{"default-disk-18b0d424735c5693":{"allowScheduling":false}}}}'
+kubectl -n longhorn-system patch nodes.longhorn.io patola-thinkcentre --type=merge \
+  -p '{"spec":{"disks":{"default-disk-6aef81d7852e3ab6":{"allowScheduling":false}}}}'
+#+end_src
+
+*Do not guess the disk IDs.* Scheduling off on the wrong one takes a dedicated
+disk out of the pool. Read them first:
+
+#+begin_src sh
+kubectl -n longhorn-system get nodes.longhorn.io <node> -o json \
+  | jq -r '.spec.disks | to_entries[] | "\(.key) \(.value.path)"'
+#+end_src
+
+| Node | Disk name | Path | UUID |
+|------+-----------+------+------|
+| sitaw-amd | default-disk-18b0d424735c5693 | =/var/lib/longhorn= | =1a6514e3-ea70-4d84-b531-102d06c32b9c= |
+| sitaw-amd | nvme | =/mnt/media-nvme= | =4df00a93-8f0e-45a3-9298-0c37987c523e= |
+| patola-thinkcentre | default-disk-6aef81d7852e3ab6 | =/var/lib/longhorn= | =c1229a26-3b81-418f-adc5-0929fdba8abd= |
+| patola-thinkcentre | data | =/mnt/data= | =bc806371-0286-44f1-aa1e-01c5ce9e671d= |
+| calamansi-intel | default-disk-9fc632c1dea049fc | =/var/lib/longhorn= | =b353dec7-9be0-48a2-a6e6-0710b30c6d2b= |
+
+Leave =calamansi-intel= alone if it has no dedicated disk: with every root disk
+unschedulable it has nowhere to receive a replica, and it is the fallback when one
+of the other two nodes dies.
+
+* Step 3 — evacuate, one replica at a time
+
+=Scheduling off= only stops new placements. Existing replicas have to be deleted so
+Longhorn rebuilds them elsewhere. The rebuild scheduler prefers the disk with the
+most free space and keeps away from the node already holding another replica of
+that volume, so in practice the replicas land on the dedicated disks without any
+selector work.
+
+Drop the rebuild throttle first. It is 600 s between rebuilds and there are about
+twenty to do:
+
+#+begin_src sh
+kubectl -n longhorn-system patch settings replica-replenishment-wait-interval \
+  --type=merge -p '{"value":"120"}'
+#+end_src
+
+Then delete replicas by disk UUID, with a health gate before each one:
+
+#+begin_src sh
+for disk in 1a6514e3-ea70-4d84-b531-102d06c32b9c \
+            c1229a26-3b81-418f-adc5-0929fdba8abd; do
+  for r in $(kubectl -n longhorn-system get replicas.longhorn.io -o json \
+      | jq -r --arg d "$disk" '.items[] | select(.spec.diskID==$d) | .metadata.name'); do
+    vol="${r%-r-*}"
+    [ "$(kubectl -n longhorn-system get volumes.longhorn.io "$vol" \
+        -o jsonpath='{.status.robustness}')" = healthy ] \
+      || { echo "SKIP $r (volume not healthy)"; continue; }
+    echo ">> $r"
+    kubectl -n longhorn-system delete replicas.longhorn.io "$r"
+    until [ "$(kubectl -n longhorn-system get volumes.longhorn.io "$vol" \
+        -o jsonpath='{.status.robustness}')" = healthy ]; do sleep 15; done
+  done
+done
+kubectl -n longhorn-system patch settings replica-replenishment-wait-interval \
+  --type=merge -p '{"value":"600"}'
+#+end_src
+
+*The health gate is not decoration.* Every volume here runs 2 replicas. If a
+volume is already degraded and you delete its remaining replica, there is nothing
+to rebuild from and the volume is gone. The loop skips those; run it again later
+instead of forcing it.
+
+Expect 100 G of rebuild traffic. The 30 G volume is the long one, about five
+minutes at 1 GbE. Watch it with:
+
+#+begin_src sh
+kubectl -n longhorn-system get volumes.longhorn.io \
+  -o custom-columns=NAME:.metadata.name,SIZE:.spec.size,ROBUST:.status.robustness \
+  --no-headers | grep -v healthy
+#+end_src
+
+* Step 4 — keep it off the root filesystem
+
+Evacuating once is a cleanup. The rule is what stops it coming back, and the rule
+is *not in git*: Longhorn disk registration, tags and =allowScheduling= live only in
+the =nodes.longhorn.io= custom resource. A disko reinstall registers a fresh
+=default-disk-*= with scheduling on, and nothing notices. That is documented drift,
+not a bug to file.
+
+So: leave scheduling off on the root-fs disks, and for anything that must stay
+dynamic (a disk added later, a node rebuilt), tag the dedicated disks and let a
+StorageClass do the filtering.
+
+| Disk | Tag |
+|------+-----|
+| =patola-thinkcentre/data= | =dedicated= |
+| =sitaw-amd/nvme= | =dedicated= |
+
+#+begin_src yaml
+# bakuran-gitops, alongside longhorn-config. The `longhorn` class is Helm-owned,
+# so declare a sibling instead of patching it.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata: { name: longhorn-dedicated }
+provisioner: driver.longhorn.io
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+parameters:
+  numberOfReplicas: "2"
+  diskSelector: "dedicated"
+  staleReplicaTimeout: "30"
+  fsType: "ext4"
+  dataEngine: "v1"
+#+end_src
+
+* Verify
+
+Two things, and both should be boring:
+
+#+begin_src sh
+# 1. how much Longhorn still holds on each root-fs disk (all should be 0)
+curl -s -G 'http://127.0.0.1:30909/api/v1/query' \
+  --data-urlencode 'query=longhorn_disk_usage_bytes{disk=~"default-disk-.*"}' \
+  | jq -r '.data.result[] | "\(.metric.node) \(.value[1])"'
+
+# 2. every volume healthy, nothing rebuilding
+kubectl -n longhorn-system get volumes.longhorn.io \
+  -o custom-columns=NAME:.metadata.name,ROBUST:.status.robustness --no-headers \
+  | grep -cv healthy
+#+end_src
+
+=0= from the second command, and a =0= for each node in the first, is the end
+state. Nothing pages you when you get there — the *Longhorn on OS filesystems* panel
+falls to zero, and the ratio rule above goes quiet on its own.
+
+* Traps
+
+- *Scheduling off frees nothing.* It is a brake, not a mop. Set it and walk away
+  and the disk is still full.
+- *Never delete a replica of a degraded volume.* 2 replicas, no exception.
+- *=kubectl scale= on a media app is undone by ArgoCD self-heal in seconds.*
+  Anything holding =/mnt/media= open has to be scaled down in git first, or the
+  remount fails (see the 2026-10-28 entry in =KNOWN-ISSUES.md=).
+- *Raising =storage-minimal-available-percentage= is not a substitute.* It makes
+  Longhorn refuse more placements; it does not move the ones already there.
+- *The ratio also rises when containerd fills the root filesystem*, because the
+  denominator shrinks. If it climbs without new volumes, step 1 is the answer.
+
+* What it bought
+
+178 G scheduled, 105 G of it on the filesystems that run the control plane. After
+step 1 the next replica had 13 G to land in instead of 120 MiB. After step 3 it
+has no business being there at all. The alerts that say so are new, and they were
+written from the number this outage was missing rather than the one that was already
+on the dashboard — then tuned down before they shipped: at 0.75 the warning fired on
+two healthy disks whose replicas are sparse (48 G promised, 7 G written), and an alert
+that fires on a healthy cluster is one people learn to ignore.

@@ -4,7 +4,7 @@
 
 Alerts come from two places, and they behave differently:
 
-- *Prometheus rules* (35) are evaluated centrally. They have a =for:= duration, so
+- *Prometheus rules* (56) are evaluated centrally. They have a =for:= duration, so
   they mean "this has been true for a while", and they clear themselves when the
   condition clears.
 - *Pushed alerts* (8) are sent by systemd hooks on the host: a failed backup, a
@@ -25,7 +25,8 @@ curl -s http://127.0.0.1:30903/api/v2/alerts | jq -r '.[] | "\(.labels.alertname
 3. *CloudflareTunnelDown / PublicProbeDown* — is the edge out?
 4. *WireGuardNoEgress* — is the media node cut off?
 5. *MediaBranchCritical* — imports are about to fail.
-6. The rest are degradations: read, schedule, do not page yourself at 3am.
+6. *LonghornDiskSchedulingOverCommitted* — the next replica rebuild on that disk fails.
+7. The rest are degradations: read, schedule, do not page yourself at 3am.
 
 * Infra
 
@@ -35,6 +36,7 @@ curl -s http://127.0.0.1:30903/api/v2/alerts | jq -r '.[] | "\(.labels.alertname
 | =TargetDown= | warn | some scrape target is unreachable (kubelet-cadvisor and longhorn excluded — they have their own) | =curl -s .../api/v1/targets \| jq '.data.activeTargets[] \| select(.health!="up")'= |
 | =DiskFillingUp= | warn | a non-media filesystem is >85% | =nix-collect-garbage -d=, =journalctl --vacuum-time=14d=, check Longhorn replicas |
 | =HostMemoryHigh= | warn | >90% available used for 15m | =kubectl top pods -A --sort-by=memory \| head= |
+| =RootFilesystemDaysToFull= | warn | =predict_linear= says the root filesystem fills within 7 days | page 21 step 1: image prune + =nix-collect-garbage=. The root filesystem carries etcd |
 | =MediaBranchFillingUp= | warn | *one mergerfs branch* is >85% — the pool union hides this | rebalance, page 09 step "a branch is full" |
 | =MediaBranchCritical= | crit | branch >93%; mergerfs refuses creates under 4G free | free space *now*; imports will fail mid-write otherwise |
 | =MediaPoolFillingUp= / =MediaPoolCritical= | warn/crit | the union is >85% / >92% | reclaim with the *arr cleanup, or add a disk |
@@ -60,6 +62,28 @@ curl -s http://127.0.0.1:30903/api/v2/alerts | jq -r '.[] | "\(.labels.alertname
 | =EtcdQuorumAtRisk= | crit | <2 leaders — writes are failing or about to | *stop everything else*, restore a member, never take a second one down |
 | =EtcdHighFsyncLatency= | warn | WAL fsync p99 >500ms, the disk is the bottleneck | check =iostat -x 1= on that node; Longhorn + etcd on one disk is the usual cause |
 | =EtcdDbSizeNearQuota= | warn | DB >1.5GiB of 2GiB | =etcdctl defrag= on each member in turn (one at a time) |
+
+* Storage (Longhorn)
+
+| Alert | Sev | Means | Fix |
+|-------+-----+-------+-----|
+| =LonghornVolumeDegraded= | warn | one replica is gone or rebuilding | tolerated, but do *not* lose the second one: find out why before touching anything |
+| =LonghornVolumeFaulted= | crit | the workload has no data | page 21, and check the node did not just die |
+| =LonghornVolumeUnknown= | warn | Longhorn cannot decide the volume's health | check the volume in the Longhorn UI; usually one node unreachable |
+| =LonghornDiskSchedulingHeadroomLow= | warn | >90% of a disk's *remaining free space* is already promised to replicas, held for an hour | page 21 steps 2 and 3 |
+| =LonghornDiskSchedulingOverCommitted= | crit | >100% — more promised to replicas than exists free | page 21 step 2 *now*; the next rebuild on that disk fails |
+| =LonghornDiskStorageLow= | warn | actual usage >90% of capacity | page 21 step 1, then step 3 |
+| =LonghornNodeStorageLow= | warn | whole-node Longhorn usage >85% | as above; the per-disk rules are the real signal |
+| =LonghornScrapeFailing= | warn | no metrics from that node's manager | every Longhorn rule above is blind while this is red |
+
+There is deliberately no alert for "Longhorn holds replicas on the OS filesystem":
+every node here does, so it would be permanently red. It is a *panel* (Longhorn on OS
+filesystems) and a migration decision in =NEXT-STEPS.md=, not a page.
+
+=LonghornDiskStorageLow= compares usage to capacity, which is *not* what stops a
+rebuild. On 2026-10-30 a disk holding 45 G of replicas had 120 MiB left for the
+next one and read 43% "used". The two headroom rules and the recording rule
+behind them exist because of that — page 21 explains the number.
 
 * Cloudflare edge
 
