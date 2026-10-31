@@ -45,14 +45,19 @@ raw) while 105 G of the 178 G scheduled sat on operating-system disks.
 
 | Alert | Sev | Means | Do |
 |-------+-----+-------+----|
-| =LonghornDiskSchedulingHeadroomLow= | warn | >75% of a disk's remaining free space is promised to replicas | this page, step 2 and 3 |
-| =LonghornDiskSchedulingOverCommitted= | crit | >95%, no room for another replica of any size | step 2 *now*; a rebuild here will fail |
-| =LonghornDataOnRootFilesystem= | warn | a =default-disk-*= holds >15% of the OS filesystem | step 4: it should not be there at all |
+| =LonghornDiskSchedulingHeadroomLow= | warn | >90% of a disk's remaining free space is promised to replicas, for an hour | this page, step 2 and 3 |
+| =LonghornDiskSchedulingOverCommitted= | crit | >100%: more promised than free, so a rebuild cannot be placed | step 2 *now*; a rebuild here will fail |
 | =LonghornDiskStorageLow= | warn | actual usage >90% of capacity | step 1, then step 3 |
 | =RootFilesystemDaysToFull= | warn | the root filesystem is projected to fill inside 7 days | step 1; check image store growth |
 
-=LonghornDataOnRootFilesystem= firing is not an emergency. It is the invariant
-that keeps the other four from mattering, and it stays red until step 4 is done.
+*There is no longer an alert for "replicas are on the root filesystem".* It was
+written, deployed, and removed the same day (2026-10-30): every node in this cluster
+keeps replicas under =/var/lib/longhorn=, so it fired on all three immediately and
+would have stayed red until step 4 was done — a condition that is permanently true is
+a panel, not a page. The standing fact lives in the *Longhorn on OS filesystems* panel
+on the Longhorn dashboard, in =NEXT-STEPS.md= as the migration decision, and in the
+weekly =docs-verify= disk-inventory check. What pages is the pair above, which say
+when the situation starts *costing redundancy* rather than merely existing.
 
 * Step 1 — reclaim what is cheap first
 
@@ -212,7 +217,8 @@ kubectl -n longhorn-system get volumes.longhorn.io \
 #+end_src
 
 =0= from the second command, and a =0= for each node in the first, is the end
-state. =LonghornDataOnRootFilesystem= clears an hour after the last replica leaves.
+state. Nothing pages you when you get there — the *Longhorn on OS filesystems* panel
+falls to zero, and the ratio rule above goes quiet on its own.
 
 * Traps
 
@@ -232,5 +238,7 @@ state. =LonghornDataOnRootFilesystem= clears an hour after the last replica leav
 178 G scheduled, 105 G of it on the filesystems that run the control plane. After
 step 1 the next replica had 13 G to land in instead of 120 MiB. After step 3 it
 has no business being there at all. The alerts that say so are new, and they were
-written from the number this outage was missing rather than the one that was
-already on the dashboard.
+written from the number this outage was missing rather than the one that was already
+on the dashboard — then tuned down before they shipped: at 0.75 the warning fired on
+two healthy disks whose replicas are sparse (48 G promised, 7 G written), and an alert
+that fires on a healthy cluster is one people learn to ignore.

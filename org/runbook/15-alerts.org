@@ -70,12 +70,15 @@ curl -s http://127.0.0.1:30903/api/v2/alerts | jq -r '.[] | "\(.labels.alertname
 | =LonghornVolumeDegraded= | warn | one replica is gone or rebuilding | tolerated, but do *not* lose the second one: find out why before touching anything |
 | =LonghornVolumeFaulted= | crit | the workload has no data | page 21, and check the node did not just die |
 | =LonghornVolumeUnknown= | warn | Longhorn cannot decide the volume's health | check the volume in the Longhorn UI; usually one node unreachable |
-| =LonghornDiskSchedulingHeadroomLow= | warn | >75% of a disk's *remaining free space* is already promised to replicas | page 21 steps 2 and 3 |
-| =LonghornDiskSchedulingOverCommitted= | crit | >95% — no room for another replica of any size | page 21 step 2 *now*; the next rebuild on that disk fails |
-| =LonghornDataOnRootFilesystem= | warn | Longhorn holds >15% of an OS filesystem, through the auto-registered default disk under =/var/lib/longhorn= | page 21 step 4. Not an emergency; it stays red until replicas are on dedicated disks |
+| =LonghornDiskSchedulingHeadroomLow= | warn | >90% of a disk's *remaining free space* is already promised to replicas, held for an hour | page 21 steps 2 and 3 |
+| =LonghornDiskSchedulingOverCommitted= | crit | >100% — more promised to replicas than exists free | page 21 step 2 *now*; the next rebuild on that disk fails |
 | =LonghornDiskStorageLow= | warn | actual usage >90% of capacity | page 21 step 1, then step 3 |
 | =LonghornNodeStorageLow= | warn | whole-node Longhorn usage >85% | as above; the per-disk rules are the real signal |
 | =LonghornScrapeFailing= | warn | no metrics from that node's manager | every Longhorn rule above is blind while this is red |
+
+There is deliberately no alert for "Longhorn holds replicas on the OS filesystem":
+every node here does, so it would be permanently red. It is a *panel* (Longhorn on OS
+filesystems) and a migration decision in =NEXT-STEPS.md=, not a page.
 
 =LonghornDiskStorageLow= compares usage to capacity, which is *not* what stops a
 rebuild. On 2026-10-30 a disk holding 45 G of replicas had 120 MiB left for the
