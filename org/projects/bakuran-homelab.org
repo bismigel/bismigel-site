@@ -33,8 +33,9 @@ be a little messy, as long as the messy parts are understood and written down.
 The lab exists to be **useful** and to be a place to practise operations on real
 failures. The constraints shaped almost every decision:
 
-- *Three old machines, no rack, residential power and internet.* High availability
-  is desirable, but high *cost* is not.
+- *Three old machines in the cluster, plus a laptop as the staging host, no rack,
+  residential power and internet.* High availability is desirable, but high *cost*
+  is not.
 - *One operator.* Anything that needs a human at 3am must page; anything that
   needs a human every week must be automated or removed.
 - *Everything must be rebuildable.* A machine can die and the lab should come
@@ -46,12 +47,18 @@ failures. The constraints shaped almost every decision:
 
 | Role | Machine | Specs | Runs |
 |------+---------+-------+------|
-| Platform | AMD desktop | Ryzen 5 4600G (6c/12t), 16 to 32 GB RAM, 2× NVMe + 2× SATA | Control plane + etcd, ArgoCD, ingress, edge connectors |
-| Media | Intel mini-PC | i5-7500T (4c), QuickSync, 2× NVMe + 2× SATA | Jellyfin and the *arr stack, transcoding |
-| Quorum | ThinkCentre M900 Tiny | i5-6500T (4c), 16 GB, 256 GB SATA SSD | Third etcd member; Immich Postgres and Redis |
-| Staging | 2012 MacBook Pro | ~240 GB SSD | Not a cluster member since 2026-10-28; hosts the KVM guests that rehearse risky changes |
-| Admin | Workstation | - | NixOS + Home Manager, deploys, dead-man's switch |
+| Platform | AMD desktop (=sitaw-amd=) | Ryzen 5 4600G, 6C/12T, 16 GB, 480 GB KLEVV NVMe (98 G root + 340 G media) and 500 GB WD SATA (458 G media) | Control plane + etcd, ArgoCD, ingress, edge connectors |
+| Media | Intel mini-PC (=calamansi-intel=) | i5-7500T, 4C/4T, 16 GB, 256 GB Toshiba NVMe (98 G root + 135 G media) and 256 GB Micron SATA (234 G media) | Jellyfin and the *arr stack, QuickSync transcoding |
+| Quorum | ThinkCentre M900 Tiny (=patola-thinkcentre=) | i5-6500T, 4C/4T, 16 GB, 256 GB SanDisk SATA SSD (1 G ESP, 100 G root, 135 G Longhorn data) | Third etcd member; Immich Postgres and Redis |
+| Staging | 2012 MacBook Pro (=kamatis-mbp=) | i5-3210M, 2C/4T, 16 GB, 240 GB WD SATA SSD | Not a cluster member since 2026-10-28; hosts the KVM guests that rehearse risky changes |
+| Admin | Framework Laptop 16 | Ryzen 7 7840HS, 8C/16T, 16 GB, 256 GB NVMe | NixOS + Home Manager, deploys, dead-man's switch |
 | Edge | Cloudflare | - | Tunnel, DNS, TLS, Zero Trust Access, R2 |
+
+Every machine is 1 GbE on a flat LAN, which is the number that matters most: a
+replica rebuild moves ~10 GB and is bounded by that link, not by the NVMe under it.
+All of it is used hardware — the media box was bought for about $100 because that
+i5-7500T has QuickSync, and the ThinkCentre was the cheapest thing with a
+socket that could take over etcd.
 
 #+begin_src mermaid
 flowchart TB
@@ -553,7 +560,7 @@ what make the next rebuild boring. That is the goal.
 
 | Version | Date | Change |
 |---------+------+--------|
-| 2026-10-31 | 2026-10-31 | ThinkCentre replaced the MacBook as the quorum member and the MacBook left the cluster; Immich moved to Longhorn; Longhorn disk layout, headroom alerting and the open evacuation item; Duwende naming; delivery section rewritten around four pipelines and the OpenTofu edge; failure table gained seven rows |
+| 2026-10-31 | 2026-10-31 | ThinkCentre replaced the MacBook as the quorum member and the MacBook left the cluster; Immich moved to Longhorn; Longhorn disk layout, headroom alerting and the open evacuation item; Duwende naming; delivery section rewritten around four pipelines and the OpenTofu edge; hardware table corrected against =lscpu=/=lsblk= on every host; failure table gained seven rows |
 | 2026-10-20 | 2026-10-20 | Redis HA corrected to the Helm chart post-renderer path; Cilium VXLAN, Kubernetes version, HSTS and SLO status updated |
 | 2026-10-18 | 2026-10-18 | Hermes SRE details; current edge monitoring and dashboards; image-pinning status clarified |
 | 2026-10-17 | 2026-10-17 | First definitive version: full architecture, backups/verification, security posture, failure modes |
