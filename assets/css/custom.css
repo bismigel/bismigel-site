@@ -107,3 +107,13 @@
   white-space: normal;
   overflow: visible;
 }
+
+/* Standfirst under the post title (layouts/posts/single.html): the same one-line
+   summary the lists show, so the index and the article agree. */
+.article-standfirst {
+  color: var(--muted);
+  font-size: 1.02rem;
+  line-height: 1.6;
+  margin: 0.7rem 0 0;
+  max-width: 62ch;
+}

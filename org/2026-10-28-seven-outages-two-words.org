@@ -293,7 +293,7 @@ The recovery procedures are in runbook 14, the invariants — including the two 
 values — are in =NETWORK.md=, and the staging guest that made this answerable is checked
 in, so the next mystery starts with an instrument instead of a theory.
 
-One small correction, because it was embarrassing: the reconciler's own data-path check
+One small correction: the reconciler's own data-path check
 demanded HTTP =200= from =https://1.1.1.1/=, which answers =301=. It reported "no data
 path — endpoint/key mismatch" on a healthy tunnel for hours. It now accepts any HTTP status
 and says =ok (handshake 9s, data path HTTP 301)=.

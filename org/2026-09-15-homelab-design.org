@@ -73,8 +73,8 @@ it, and then I read the resulting config against the other two hosts before I tr
 ** What bit me
 
 - *The firewall.* The join kept timing out. The etcd port between machines was not open on
-  the other two. The new node could reach the API but not its peers, and I stared at pod
-  logs for a long time before checking the machine firewall.
+  the other two. The new node could reach the API but not its peers, and the pod logs said
+  nothing about it.
 - *The mark.* Keeping the MacBook small is right for it, but it also means it cannot help
   *spread* apps for safety. A node that only runs the control plane keeps the cluster
   alive; making the apps safe is a different job.
