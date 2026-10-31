@@ -220,20 +220,13 @@ etcd    3 members, leader on .81, ~10 ms commit
 apps    31/31 synced and healthy
 #+end_src
 
-The MacBook still exists. It runs nothing but the DaemonSets, and it will stay
-until I decide whether it becomes the staging host or gets switched off for good.
+The MacBook still exists. It runs nothing but the DaemonSets, and it will stay until I
+decide whether it becomes the staging host or gets switched off for good.
 
-* What I actually learned
-
-- *Check what a node carries before removing it.* Node-local volumes are
-  invisible until the pods go Pending. That one was avoidable and cost an
-  afternoon.
-- *A rollback can undo your intent.* The failed agent deploy restored the server
-  config, which rejoined etcd - the opposite of what I asked for. Read what the
-  tool did, not what it was supposed to do.
-- *Hard-coded counts in monitors are technical debt with a firing alert.*
-- *Preserving the host key is cheaper than re-encrypting secrets.* One =scp=
-  before the install saved a SOPS round trip.
-- *Live images are not all the same.* =kexec_load_disabled= is a legitimate
-  security default that removes the standard install path, and nothing warns you
-  until you try.
+The pattern behind every obstacle here is the same: the node was not just a machine.
+It was an age identity that decrypts secrets, a source address outside the firewall
+range, a PV affinity value, a nodeSelector in three objects, and four hard-coded
+counts in monitors. None of that shows up in =kubectl get nodes=, and all of it breaks
+when the name moves. Read what a tool *did*, not what it was supposed to do: the
+rolled-back agent deploy put the node back into etcd, which was the opposite of the
+intent, and it looked like success.

@@ -180,7 +180,7 @@ flowchart TB
 
 * What I would still change
 
-The front door trusts an identity header that Access adds. That is only safe if the origin
+The front door trusts an identity header that Access adds, which is only safe if the origin
 can be reached *only* through the tunnel, and for a while my services were also reachable
 on the LAN, where someone could fake that header. I fixed it later. The LAN can no longer
 bypass the edge, but I want it written down instead of pretending it was never a problem.

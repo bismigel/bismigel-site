@@ -238,21 +238,14 @@ streams before the box is full.
 
 * What I would do differently
 
-- Measure both address families before theorising. One pair of numbers looked
-  like a constant penalty; six runs showed loss, which is a different diagnosis
-  and a different fix.
-- Treat a 5 second DNS time as a dropped query, not a slow resolver. The number
-  is a timer, not a measurement of distance.
-- Remember that the server can be idle while the user is unhappy. CPU, disk and
-  memory were all clean during the worst of it.
-- Check the cache before declaring a fix live. The client kept using IPv6 for
-  minutes after the zone stopped publishing AAAA, because both the answer and
-  the connection were already open.
-- Keep going one layer down. Fixing the path made the transcodes cheap, which is
-  what made the 12 Mbit/s policy cap visible in the first place.
-- Measure again after raising a cap. The CPU per stream went from 0.58 to 0.80
-  cores when the same 4K file stopped being downscaled, and that changes how
-  many viewers fit.
+- Measure both address families before theorising. One pair of numbers looked like a
+  constant penalty; six runs showed loss, which is a different diagnosis and a different
+  fix. A 5 second DNS time is a dropped query, not a slow resolver.
+- Check the cache before declaring a fix live. The client kept using IPv6 for minutes
+  after the zone stopped publishing AAAA, because both the answer and the connection were
+  already open.
+- Measure again after raising a cap. The CPU per stream went from 0.58 to 0.80 cores when
+  the same 4K file stopped being downscaled, and that changes how many viewers fit.
 
 * Links
 
