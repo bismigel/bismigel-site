@@ -1,38 +1,27 @@
-#+TITLE: ArgoCD Redis HA on a tainted k3s cluster
+#+TITLE: ArgoCD Redis HA: the official manifests, then the chart
 #+DATE: 2026-10-19T14:00:00-04:00
+#+ALIASES: /posts/2026-10-20-argocd-redis-ha-through-the-chart/
 #+FILETAGS: homelab:kubernetes:argocd:redis
-#+DESCRIPTION: Making ArgoCD Redis highly available on three nodes, including the taint and anti-affinity problem that left Redis pods Pending.
+#+DESCRIPTION: Two attempts at making ArgoCD Redis highly available on three nodes: a scheduling problem with the official HA manifests, then a Helm chart with a broken announce Service.
 
-#+begin_quote
-*Update 2026-10-20:* This post documents the official-manifest attempt. Production
-later moved to the Helm chart with a headless announce post-renderer. The
-follow-up is [[file:2026-10-20-argocd-redis-ha-through-the-chart.org][Getting ArgoCD Redis HA through the chart, not around it]].
-#+end_quote
+ArgoCD stores desired state in etcd. Redis is a cache: losing it pauses
+reconciliation, but it does not take down running workloads. That made the single Redis
+pod easy to ignore, until it became the last obvious single point of failure in the
+control plane.
 
-ArgoCD stores desired state in etcd. Redis is a cache. Losing Redis pauses
-reconciliation, but it does not take down running workloads. That made the
-single Redis pod easy to ignore, until it became the last obvious single point
-of failure in the control plane.
+It took two attempts. The official HA manifests failed on scheduling, because the third
+node is tainted. The Helm chart failed on a Service type that makes sentinel
+unreachable. Both are fixed now, and the fixes are different kinds of workaround, which
+is the part worth writing down.
 
-This is the retry that worked.
+The cluster has three k3s nodes. Two are general schedulers. The third, =kamatis-mbp=,
+is control-plane and etcd only, with a =NoSchedule= taint.
 
-* The setup
+* Attempt one: the official HA manifests
 
-The cluster has three k3s nodes. Two are general schedulers. The third,
-=kamatis-mbp=, is control-plane and etcd only, with a =NoSchedule= taint.
-
-I used the official ArgoCD HA Redis resources, not the previous third-party
-chart attempt:
-
-- three Redis servers with sentinel;
-- three HAProxy pods;
-- headless announce services for sentinel discovery;
-- ArgoCD pointed at =argocd-redis-ha-haproxy:6379=.
-
-The official HA manifest is here:
-https://github.com/argoproj/argo-cd/blob/master/manifests/ha/install.yaml
-
-* What failed
+I used ArgoCD's official HA Redis resources: three Redis servers with sentinel, three
+HAProxy pods, headless announce Services for sentinel discovery, and ArgoCD pointed at
+=argocd-redis-ha-haproxy:6379=.
 
 Redis was healthy on two nodes. The third pod stayed Pending:
 
@@ -42,18 +31,13 @@ Redis was healthy on two nodes. The third pod stayed Pending:
   2 node(s) didn't match pod anti-affinity rules.
 #+end_src
 
-The HA manifests use required pod anti-affinity so Redis and sentinel are spread
-across three nodes. That is correct for quorum. But the third node was tainted,
-so the scheduler had no legal place to put the third replica.
+The manifests use required pod anti-affinity so Redis and sentinel spread across three
+nodes, which is correct for quorum. But the third node was tainted, so the scheduler had
+no legal place to put the third replica. The first HAProxy pod hit the same wall, and
+during the rollout old HAProxy pods held their nodes, so replacements stayed Pending
+after the new ReplicaSet was ready.
 
-The first HAProxy pod hit the same wall. During the rollout, old HAProxy pods also
-held their nodes, so a replacement stayed Pending even after the new ReplicaSet
-was ready.
-
-* The fix
-
-Add a toleration for the control-plane taint to both the Redis StatefulSet and
-the HAProxy Deployment:
+The fix is an explicit toleration on both workloads:
 
 #+begin_src bash
 TOL='[{"key":"node-role.kubernetes.io/control-plane","operator":"Exists","effect":"NoSchedule"}]'
@@ -65,8 +49,8 @@ kubectl -n argocd patch deploy argocd-redis-ha-haproxy --type merge \
   -p "{\"spec\":{\"template\":{\"spec\":{\"tolerations\":$TOL}}}}"
 #+end_src
 
-Then remove the stale rolling pods so the scheduler can place the replacements.
-Finally point ArgoCD at HAProxy:
+Then remove the stale rolling pods so the scheduler can place the replacements, and point
+ArgoCD at HAProxy:
 
 #+begin_src bash
 kubectl -n argocd patch configmap argocd-cmd-params-cm --type merge \
@@ -78,41 +62,25 @@ kubectl -n argocd rollout restart \
   statefulset/argocd-application-controller
 #+end_src
 
-* Verify
-
 #+begin_src bash
 kubectl -n argocd get pods -l 'app.kubernetes.io/name in (argocd-redis-ha,argocd-redis-ha-haproxy)'
 kubectl -n argocd get app root
 kubectl -n argocd logs deploy/argocd-repo-server --tail=50
 #+end_src
 
-Expected:
+Three Redis pods at =3/3=, three HAProxy pods at =1/1=, root app Synced and Healthy, no
+Redis connection errors. The bootstrap script now applies the HA resources with the
+toleration and the HAProxy endpoint, so a rebuild does not depend on manual patches.
 
-- three Redis server pods at =3/3=;
-- three HAProxy pods at =1/1=;
-- ArgoCD root app Synced and Healthy;
-- no Redis connection errors in the repo server.
+None of that was a Redis bug. It was scheduling policy: the HA manifest assumes three
+schedulable nodes, and a tainted control-plane node needs an explicit toleration. That is
+a cluster decision, not a chart defect.
 
-At the time, the old single Redis deployment was kept as a fallback. The
-follow-up replaced this path with chart-managed HA; the fallback is now a Helm
-rollback revision, not a running second Redis.
+** The sentinel CPU spin
 
-* Why this was not a Redis bug
-
-The failure was scheduling policy, not Redis, sentinel or ArgoCD. The official HA
-manifest assumes three schedulable nodes. A tainted control-plane node needs an
-explicit toleration. That is a cluster decision, not a chart defect.
-
-The bootstrap script now applies the HA resources, adds the toleration and sets
-the HAProxy endpoint, so a rebuild does not depend on manual patches.
-
-* Sentinel CPU spin
-
-Redis HA has a known sentinel bug. After a restart, one or two sentinel
-containers can pin a full CPU core with no useful log output. ArgoCD stays
-healthy, but the core burn is real.
-
-The workaround is a delayed sentinel reset after startup:
+Redis HA has a known sentinel bug: after a restart, one or two sentinel containers can pin
+a full CPU core with no useful log output. ArgoCD stays healthy; the core burn is real.
+The workaround is a delayed reset after startup:
 
 #+begin_src yaml
 lifecycle:
@@ -121,22 +89,155 @@ lifecycle:
       command: ["/bin/sh", "-c", "sleep 30; redis-cli -p 26379 sentinel reset argocd"]
 #+end_src
 
-The official-manifest bootstrap applied that to the sentinel container. The Helm
-chart path does not. There, container CPU alerts and the Redis HA alerts are the
-safety net; apply the same reset by hand if a sentinel pins a core. It is a
+The official-manifest path applied that. The chart path does not, so there container CPU
+alerts and the Redis HA alerts are the safety net, and the reset is applied by hand. A
 workaround, not an upstream fix.
 
-- Redis bug: https://github.com/redis/redis/issues/9956
-- ArgoCD bug: https://github.com/argoproj/argo-cd/issues/16360
-- Patch reference: https://github.com/utilitywarehouse/system-manifests/pull/286
+* Attempt two: the chart
+
+ArgoCD was already Helm-owned, so the right answer was =redis-ha.enabled: true= in values.
+That rollout reached two Redis pods and two HAProxy pods; the third stayed in init:
+
+#+begin_src text
+argocd-redis-ha-server-0   0/3   Init:0/1
+argocd-redis-ha-haproxy    2/3   Running
+#+end_src
+
+The init log was not a Redis crash:
+
+#+begin_src text
+Identifying redis master (get-master-addr-by-name)..
+  using sentinel (argocd-redis-ha), sentinel group name (argocd)
+Could not connect to Redis at argocd-redis-ha:26379: Try again
+#+end_src
+
+HAProxy was waiting for the same sentinel. The announce endpoint existed, but connecting to
+it timed out. The pod could not become ready, so the sentinel Service had no usable
+endpoint, so the lookup kept failing.
+
+** Rule out the test cluster first
+
+I built three disposable NixOS VMs on =calamansi-intel= to test without touching
+production. The first test was invalid: k3s picked the wrong interface for Flannel.
+
+#+begin_src text
+flannel.1 local 10.0.2.15 dev eth0
+#+end_src
+
+That is the QEMU NAT address, not the cluster network. CoreDNS was unreachable across
+nodes and Redis init hung on =getent hosts=. =--flannel-iface=eth1= fixed it, and after a
+reboot DNS and cross-node traffic worked while the Redis failure remained. That ruled out
+CNI, scheduling and resources.
+
+** The real problem
+
+The chart creates one announce Service per Redis pod but hardcodes them as ClusterIP:
+
+#+begin_src yaml
+spec:
+  publishNotReadyAddresses: true
+  type: ClusterIP
+#+end_src
+
+=config-init= resolves the announce name and gets the Service VIP, not the pod IP.
+Sentinel then monitors that VIP, the split-brain container never converges, and the pod
+stays NotReady. This is
+[[https://github.com/DandyDeveloper/charts/issues/422][DandyDeveloper/charts#422]], with
+the masterless deadlock reported as
+[[https://github.com/DandyDeveloper/charts/issues/412][#412]]. The fix is to make the
+announce Services headless:
+
+#+begin_src yaml
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+#+end_src
+
+On the test cluster, announce then resolved to a pod IP, Redis reached =3/3=, HAProxy
+reached =3/3=, and deleting the master made sentinel promote another pod while the old
+master rejoined as a replica.
+
+** Making it repeatable
+
+A manual =kubectl patch= would be undone by the next Helm upgrade, and the chart has no
+value for this, so I added a Helm post-renderer that rewrites only the =redis-ha= announce
+Services:
+
+#+begin_src bash
+awk '
+  /^---[[:space:]]*$/ { announce=0; print; next }
+  /^  name:[[:space:]]+.*-announce-[0-9]+[[:space:]]*$/ { announce=1 }
+  /^spec:[[:space:]]*$/ && announce { print; print "  clusterIP: None"; next }
+  { print }
+'
+#+end_src
+
+The values also need the toleration, and the chart reads =redis-ha.tolerations= at the top
+level, not under =redis= or =haproxy=. That detail cost one more rollout.
+
+#+begin_src yaml
+redis-ha:
+  enabled: true
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+#+end_src
+
+Helm 4 no longer accepts an executable post-renderer, so the deploy used Helm 3.17.3:
+
+#+begin_src bash
+helm -n argocd upgrade --install argocd argo/argo-cd \
+  --version 10.10.5 -f manifests/argocd/values.yaml \
+  --post-renderer ./scripts/argocd-redis-ha-post-renderer.sh \
+  --take-ownership --wait --timeout 12m
+#+end_src
+
+The Redis server ConfigMap changed but the existing ArgoCD pods kept their old cache
+endpoint, so the consumers needed a restart:
+
+#+begin_src bash
+kubectl -n argocd rollout restart \
+  deploy/argocd-repo-server deploy/argocd-server \
+  deploy/argocd-applicationset-controller \
+  statefulset/argocd-application-controller
+#+end_src
+
+#+begin_src bash
+kubectl -n argocd get pods -l 'app.kubernetes.io/name in (argocd-redis-ha,argocd-redis-ha-haproxy)'
+kubectl -n argocd get endpoints argocd-redis-ha argocd-redis-ha-haproxy
+kubectl -n argocd get app root
+#+end_src
+
+Production: Redis =3/3= and HAProxy =3/3= across all three nodes, both Services with three
+endpoints, root Synced and Healthy, 29 applications Synced and Healthy (the existing
+Cilium drift still showing as OutOfSync but Healthy).
+
+* What it cost
+
+The chart still owns the workaround, not the fix: the post-renderer has to be included on
+every upgrade, the consumers need a restart after the Redis endpoint changes, and rollback
+is a Helm rollback to the single Redis revision. The official-manifest path is no longer
+used, and its fallback is that same Helm revision rather than a second running Redis.
+
+Two attempts, two different classes of failure, and neither was Redis. The first was a
+scheduling decision I had made and forgotten. The second was a manifest detail upstream
+had not fixed. Both were invisible until a third replica existed to fail.
 
 * Links
 
-- ArgoCD high availability:
-  https://argo-cd.readthedocs.io/en/stable/operator-manual/high_availability/
-- Official HA install manifest:
-  https://github.com/argoproj/argo-cd/blob/master/manifests/ha/install.yaml
-- Kubernetes taints and tolerations:
-  https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/
+- [[https://argo-cd.readthedocs.io/en/stable/operator-manual/high_availability/][ArgoCD high availability]]
+- [[https://github.com/argoproj/argo-cd/blob/master/manifests/ha/install.yaml][Official HA install manifest]]
+- [[https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/][Kubernetes taints and tolerations]]
+- [[https://kubernetes.io/docs/concepts/services-networking/service/#headless-services][Headless Services]]
+- [[https://docs.k3s.io/networking/basic-network-options#flannel-options][k3s Flannel options]]
+- [[https://helm.sh/docs/topics/advanced/#post-rendering][Helm post-renderers]]
+- [[https://github.com/DandyDeveloper/charts/issues/422][Announce Service is ClusterIP]] and
+  [[https://github.com/DandyDeveloper/charts/issues/412][masterless deadlock]]
+- [[https://github.com/redis/redis/issues/9956][redis/redis#9956]],
+  [[https://github.com/argoproj/argo-cd/issues/16360][argo-cd#16360]],
+  [[https://github.com/utilitywarehouse/system-manifests/pull/286][sentinel reset patch reference]]
 - The edge split and Cilium migration:
   [[file:2026-10-18-homelab-network-migration.org][Homelab network migration]]
+- Production GitOps changes: =bakuran-gitops= PR #124, #125 and #126 (the repository is
+  private, so there is no public link).

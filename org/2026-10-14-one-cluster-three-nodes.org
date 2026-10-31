@@ -3,7 +3,7 @@
 #+FILETAGS: homelab:kubernetes:ha
 
 #+begin_quote
-*Building the lab: Part 4 of 8.* ← [[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext]]
+*Building the lab.* ← [[file:2026-10-13-secrets-without-plaintext.org][Secrets without plaintext]]
 Next: [[file:2026-10-16-deepseek-writes-the-boring-parts.org][Where AI fits in the lab]]
 #+end_quote
 

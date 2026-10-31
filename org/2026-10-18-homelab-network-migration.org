@@ -4,7 +4,7 @@
 #+DESCRIPTION: A real network migration in a three-node k3s homelab: ingress and egress policies, SLOs, and a Cilium migration that ended with VXLAN and a stale Flannel interface.
 
 #+begin_quote
-*Building the lab: afterword.* (Not part of the numbered series.)
+*Building the lab: afterword.*
 ← [[file:2026-10-18-homelab-epilogue.org][Homelab epilogue: exposing services and publishing the repo]]
 #+end_quote
 

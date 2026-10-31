@@ -3,7 +3,7 @@
 #+FILETAGS: homelab:design:nixos
 
 #+begin_quote
-*Building the lab: Part 1 of 8.* You are at the start.
+*Building the lab.* You are at the start.
 Next: [[file:2026-10-02-how-this-site-is-built.org][How this site is built]]
 #+end_quote
 

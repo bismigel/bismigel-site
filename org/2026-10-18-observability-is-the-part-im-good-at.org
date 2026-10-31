@@ -5,7 +5,7 @@
 #+DESCRIPTION: How a three-node k3s homelab collects metrics with Prometheus, splits them into five Grafana dashboards, and sends the alerts that matter to Telegram.
 
 #+begin_quote
-*Building the lab: Part 8 of 8.* ← [[file:2026-10-17-two-tunnels-are-better-than-one.org][Cloudflare Tunnel HA: two connectors for a safer homelab edge]]
+*Building the lab.* ← [[file:2026-10-17-two-tunnels-are-better-than-one.org][Cloudflare Tunnel HA, and what the tunnel is not for]]
 Next: [[file:2026-10-18-homelab-epilogue.org][Homelab epilogue: exposing services and publishing the repo]]
 #+end_quote
 

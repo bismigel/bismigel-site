@@ -4,8 +4,8 @@
 #+FILETAGS: homelab:media:kubernetes:jellyfin
 
 #+begin_quote
-*Building the lab: Part 6 of 8.* ← [[file:2026-10-16-deepseek-writes-the-boring-parts.org][Where AI fits in the lab]]
-Next: [[file:2026-10-17-two-tunnels-are-better-than-one.org][Two tunnels are better than one]]
+*Building the lab.* ← [[file:2026-10-16-deepseek-writes-the-boring-parts.org][Where AI fits in the lab]]
+Next: [[file:2026-10-17-two-tunnels-are-better-than-one.org][Cloudflare Tunnel HA, and what the tunnel is not for]]
 #+end_quote
 
 Two things broke my media box in the same week. For a while, I did not see that they

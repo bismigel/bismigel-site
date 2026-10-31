@@ -1,117 +1,187 @@
-#+TITLE: Where AI fits in a homelab: config drafts and a cluster agent
+#+TITLE: AI in the lab: drafts, an agent, and the leash
 #+DATE: 2026-10-16
-#+FILETAGS: ai:homelab:agents
+#+ALIASES: /posts/2026-10-18-hermes-homelab-sre-agent/
+#+FILETAGS: ai:homelab:agents:sre
+#+DESCRIPTION: Where a model earns its place in a homelab, and what it takes to run an agent with read-only cluster access, a daily report and guardrails that are technical blocks instead of suggestions.
 
 #+begin_quote
-*Building the lab: Part 5 of 8.* ← [[file:2026-10-14-one-cluster-three-nodes.org][One cluster, three nodes]]
+*Building the lab.* ← [[file:2026-10-14-one-cluster-three-nodes.org][One cluster, three nodes]]
 Next: [[file:2026-10-17-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]]
 #+end_quote
 
-For a long time, I did not let a model write code for me. I think I felt I was supposed
-to be against it.
+For a long time I did not let a model write code for me. I think I felt I was supposed to
+be against it. But a lot of this lab is boring work: NixOS modules, Kubernetes files, the
+same small patterns again and again. I was spending my evenings retyping things I had
+already worked out.
 
-But a lot of this lab is boring work. There are NixOS modules, Kubernetes files, and
-the same small patterns again and again. I was spending my evenings retyping things I
-had already worked out. So I let a model do some of it, then spent time finding out
-where that was a good idea and where it was not.
-
-Later, I saw the same lesson again, one step up, when I put an *agent* inside the lab.
-This post covers both parts.
+So I let a model do some of it, then spent time finding out where that was a good idea.
+Later I saw the same lesson one step up, when I put an *agent* inside the lab.
 
 * Where the model helps
 
-My rule is simple. If I can describe the answer in one sentence, I let the model write
-it. A new secret that copies an old one. A Deployment with the same labels and checks
-as the others. The tenth version of a shell script. These are not problems to solve.
-They are typing, and I do not learn much from typing them again.
+My rule is simple: if I can describe the answer in one sentence, the model writes it. A new
+secret that copies an old one. A Deployment with the same labels and checks as the others.
+The tenth version of a shell script. Those are not problems to solve, they are typing.
 
-Two things surprised me, because they helped a lot. The first is *translation between
-languages*. I can read a Kubernetes file, but I do not remember every field name. And I
-really do not remember NixOS option names. A model does. So instead of guessing, I get
-a build error five minutes later. That is a cheap way to find out I was wrong. The
-second is *the first draft of anything boring*. I am happy to rewrite a script, but I
-hate writing the first version. So I ask for a draft, I read it, and I fix the parts
-that matter.
+Two things surprised me. The first is *translation between languages*: I can read a
+Kubernetes file but I do not remember every field name, and I really do not remember NixOS
+option names. A model does, so instead of guessing and finding out through a build error
+five minutes later, I get it right the first time. The second is *the first draft of
+anything boring*. I am happy to rewrite a script; I hate writing the first version.
 
 * Where it does not help
 
-The model is confidently wrong about anything new or unusual, and my whole lab is
-unusual. It will invent a Helm value. It will assume a setting that changed two
-versions ago. Or it will write a file that looks fine but quietly does the wrong thing
-for *this* cluster, because it has no idea what this cluster is. All three have
-happened to me.
+The model is confidently wrong about anything new or unusual, and my whole lab is unusual.
+It invents a Helm value. It assumes a setting that changed two versions ago. It writes a
+file that looks fine and quietly does the wrong thing for *this* cluster, because it has no
+idea what this cluster is. All three have happened.
 
-So my rule is: it writes a draft, and I decide. Nothing goes to the cluster before I
-read it. Anything about secrets, the edge, or the shape of my data is my job. I think
-of the model as a fast, tireless, slightly overconfident junior.
+So: it writes a draft, and I decide. Nothing reaches the cluster before I read it. Anything
+about secrets, the edge, or the shape of my data is my job. I think of it as a fast,
+tireless, slightly overconfident junior.
 
-* Keeping the keys out
+One rule I do not bend: the model never sees a secret. It does not need the value of
+anything to write code that *uses* it, and the same goes for prompts. A config I paste or a
+token inside an error message is a placeholder, never the real thing. I caught myself
+pasting a real value once. Once is too many.
 
-One rule I will not bend: the model never sees a secret. It does not need the value of
-anything to write code that *uses* it. The same goes for my prompts. A config I paste,
-or a token inside an error message, is always a placeholder, never the real thing. I
-caught myself pasting a real value once. Once is too many.
+* Why an agent instead of another dashboard
 
-* An agent inside the cluster
+I have five dashboards, each answering a different question. That is good when I am
+debugging and bad when I just want to know whether the lab is healthy.
 
-Once the lab could rebuild itself, one idea kept coming back. I did not want to be the
-only person who could run it. So I put an agent inside the cluster, gave it my tools,
-and let it do the small work. Same model underneath. Same lesson, one step up.
+A dashboard waits for me to look. An alert tells me when a line is crossed. Neither
+explains what it found. I wanted a first responder that could check the nodes, query
+Prometheus, read a pod log, look at ArgoCD and put the result in one short message.
 
-It is one workload, built like everything else, and you reach it in two ways. Both sit
-behind the same login check. There is a web page behind Cloudflare Access, and a
-Telegram bot that only answers accounts I added by hand. Nobody else gets a reply.
+That is Hermes, and the dramatic name is the most dramatic part. It watches, triages and
+reports. I still make the changes.
 
-The useful part is not the chat. The machine it runs on is not a sandbox. It has a
-shell, with =kubectl=, =gh=, =git=, =helm=, =jq=, and my own notes. So when I ask it
-something, it does not summarize a log I pasted; it goes and looks. That is when it
-stopped being a toy. It is also the danger.
+* What it does
 
-There is a cleaner way to give it room: MCP servers. They give it a clear list of
-actions instead of a whole shell. I prefer them. Not because they can do more (a
-shell with =kubectl= can do more), but because I can name each action, think about it,
-and block it. A shell is a list with no end.
+- Every morning at 08:00 America/Toronto it checks nodes, pods, restarts, ArgoCD sync and
+  health, firing alerts, filesystem use and memory trends, and sends a short report to
+  Telegram.
+- On request it can look at a deployment, read pod logs, query Prometheus, check ArgoCD,
+  inspect the media queue, or search the book stack.
+- It can open a pull request. The rule is branches and pull requests, never main.
+- It can add a series or a book to the media queue; the media tools have no delete action,
+  so it cannot remove anything.
+- It can read Cloudflare state — tunnels, zones, DNS, certificates, Access apps — and
+  cannot change any of it.
+
+The daily report is the part that changed how I use the lab. It is not a wall of graphs,
+it is a short list of what is healthy and what is not, and it lands where I already look.
+
+* The architecture
+
+One Deployment, with a PVC for state at =/opt/data= holding config, sessions, memory and
+the cron list. It talks to the lab through MCP servers, and each server is a boundary
+around a set of actions.
+
+#+begin_src mermaid
+flowchart TB
+  T["Telegram"] --> H["Hermes agent"]
+  D["Dashboard<br/>Access and basic auth"] --> H
+  H --> K["Kubernetes MCP<br/>read-only"]
+  H --> P["Prometheus MCP<br/>queries"]
+  H --> M["Media MCP<br/>add and search"]
+  H --> G["GitHub MCP and gh<br/>branches and PRs"]
+  H --> C["Cloudflare proxy<br/>GET only"]
+  K --> CL["k3s cluster"]
+  P --> PR["Prometheus"]
+  M --> AR["*arr and books"]
+  C --> CF["Cloudflare API"]
+#+end_src
+
+MCP (Model Context Protocol) is a standard way to give the agent a tool with its own
+permissions. I can hand it a useful action without handing it a shell command for
+everything: the Kubernetes server uses a read-only ServiceAccount, the media server has no
+delete action, and the Cloudflare path is an nginx proxy that only allows GET, HEAD and
+OPTIONS.
+
+The agent still has a shell for =kubectl= and =gh=. That is the part that makes it useful
+and the part that makes the guardrails matter.
 
 * The leash
 
-Full freedom is the easy setting. I am now sure it is the wrong one. I want two things
-from a tool with full access to the lab. First, it should not be able to make a change
-that would embarrass me. Second, I should be able to send it off without watching it.
+Full freedom is the easy setting, and I am now sure it is the wrong one. Two things matter
+for a tool with access to the lab: it should not be able to make a change that would
+embarrass me, and I should be able to send it off without watching it.
 
-So I gave it three rules, plus a few limits it cannot get around:
+The rules are in layers, and each layer assumes the one above it may fail:
 
-- *It suggests, it does not commit.* It works on branches and opens pull requests. The
-  main branch is protected, so that is not just a suggestion. The review is the whole
-  point.
-- *It does not get the Cloudflare token.* Cloudflare is the one thing that can expose
-  my house. So the agent reaches it through a small proxy. The proxy holds the token
-  and only passes *reads*. Every write gets a flat no. It cannot change the edge, and
-  it cannot leak a token it never had.
-- *Secrets stay in a store*, and arrive as environment variables. So the agent sees the
-  *name* of a credential, and nothing more.
+| Layer | Limit |
+|-------+-------|
+| Kubernetes RBAC | Read-only. Get, list and watch, with no Secrets. |
+| Cloudflare proxy | GET, HEAD and OPTIONS only. Every write returns 403. |
+| GitHub token | Repo-scoped. The branch and pull-request rule is a working rule, not a hard block. |
+| Human review | Destructive work and merges still need me. |
 
-* What went wrong, and what I think now
+The hard limits are on the cluster and the edge: the Kubernetes role cannot change
+anything, and the proxy cannot send a write. Those are technical blocks, not suggestions.
+The =SOUL.md= mounts the same rules in plain language — pull requests only, ask before
+anything destructive, never write a secret to a file or a log — but the prompt is the last
+layer, not the first.
 
-Here is the honest part. While I set things up, I ran a job that pushed placeholder
-values into the secret store on a timer. Later, I put in the real values, but the job
-kept running. On its next run, it wrote the placeholders back over the real values.
-The agent then spent an evening being confidently useless, and I spent that evening
-thinking the tools were broken. The tools were fine.
+The GitHub rule is the soft spot. A repo-scoped token can still push to main if the agent
+decides to, which is why every branch and pull request gets a human look. I would rather
+say that plainly than pretend the prompt is a wall.
 
-The lesson is not about agents. It is this: anything that writes to your source of
-truth on a timer will one day do it at the worst moment. I still do not have a good way
-to stop that. I just remember it.
+What it cannot do, by design: apply changes to the cluster, merge its own pull requests,
+write to Cloudflare, delete media or books, read Kubernetes Secrets, or replace
+Alertmanager. It also cannot run outside the lab, so if the cluster is down the agent is
+down — which is why the dead-man's switch lives on the workstation outside the cluster.
 
-The value is real, but smaller than I imagined. The agent is good at the same things
-the model is good at: the boring, the repeated, the look-it-up. It is useful to have a
-box that can answer "what is running, and is it healthy" without me opening a terminal.
-It is useful that it can open a pull request for a small thing it noticed. It is not
-useful for anything that needs judgement, and I have stopped hoping it will be.
+* The setup, which is boring on purpose
 
-My worry is not that the model is bad. My worry is that it is confidently wrong at the
-edge of what it can see. That is also my worry about myself. The answer is the same for
-both: keep the things that cannot be undone behind a human, and let everything else
-move fast.
+1. **Run it as a workload.** A normal Deployment with a PVC at =/opt/data=.
+2. **Give it a face.** A Telegram bot with a single-user allowlist, and a dashboard behind
+   Cloudflare Access plus basic auth.
+3. **Give it context.** Mount the operating docs and =SOUL.md=. An agent without context is
+   a confident guesser.
+4. **Add MCP servers.** Kubernetes, Prometheus, media, GitHub. Each gets its own
+   credentials and its own limits.
+5. **Use a dedicated ServiceAccount.** A read-only ClusterRole with get, list and watch. No
+   Secrets.
+6. **Wrap Cloudflare.** The token sits behind a sidecar that returns 403 for every
+   state-changing request; the write-capable token stays on the host, outside the pod.
+7. **Scope GitHub.** A repo-scoped token, branches and pull requests as the rule, no merge
+   permission.
+8. **Seed a daily job.** The 08:00 report is a prompt, not a fixed script, so it can adapt
+   to what it finds. Ask for a short answer and no secrets.
+9. **Back up the state.** The agent's memory and job list are part of the appdata backup; a
+   rebuilt agent should remember how the lab works.
 
-So the lab ran, and a model wrote a good part of it. Then I tried to watch something on
-it, and hit a wall.
+The model is DeepSeek =deepseek-chat= through a custom OpenAI-compatible provider. The
+model is not the interesting part. The tools and the boundaries are.
+
+* What went wrong
+
+While setting this up I ran a job that pushed placeholder values into the secret store on a
+timer. Later I put the real values in, but the job kept running, and on its next run it
+wrote the placeholders back over the real values. The agent then spent an evening being
+confidently useless while I spent it thinking the tools were broken. The tools were fine.
+
+The lesson is not about agents. Anything that writes to your source of truth on a timer
+will one day do it at the worst moment. I still do not have a good way to stop that.
+
+* Is it worth it
+
+The value is real, but smaller than I imagined. The agent is good at the things the model
+is good at: the boring, the repeated, the look-it-up. Having a box that answers "what is
+running, and is it healthy" without opening a terminal is useful. So is a pull request for
+a small thing it noticed. It is not useful for anything that needs judgement, and I have
+stopped hoping it will be.
+
+My worry is not that the model is bad. My worry is that it is confidently wrong at the edge
+of what it can see. That is also my worry about myself, and the answer is the same: keep
+the irreversible behind a human, let everything else move fast.
+
+So the lab ran, and a model wrote a good part of it. Then I tried to watch something on it,
+and hit a wall.
+
+#+begin_quote
+*Building the lab.* Previous: [[file:2026-10-14-one-cluster-three-nodes.org][One cluster, three nodes]] ·
+Next: [[file:2026-10-17-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]]
+#+end_quote

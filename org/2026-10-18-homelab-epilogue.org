@@ -5,9 +5,9 @@
 #+DESCRIPTION: What I checked before pointing real domains at the lab and before making the cluster repos public: what is exposed, what the fear changed, and what still is not finished.
 
 #+begin_quote
-*Building the lab: epilogue.* (Not part of the numbered series.)
+*Building the lab: epilogue.*
 ← [[file:2026-10-18-observability-is-the-part-im-good-at.org][Homelab observability: Prometheus, Grafana and five focused dashboards]] ·
-[[file:2026-10-18-the-tunnel-isnt-a-fire-hose.org][Why a Cloudflare Tunnel is not a fire hose for Jellyfin]]
+[[file:2026-10-17-two-tunnels-are-better-than-one.org][Cloudflare Tunnel HA, and what the tunnel is not for]]
 #+end_quote
 
 The site is public. The workstation config is public. The cluster repos are still
@@ -71,8 +71,8 @@ fear can become a check.
   fifteen minutes sends an alert.
 
 None of this makes the lab unhackable. It makes a failure smaller and louder, which is
-the goal. The agent is a separate story:
-[[file:2026-10-18-hermes-homelab-sre-agent.org][Hermes as a homelab SRE]].
+the goal. The agent is its own story:
+[[file:2026-10-16-deepseek-writes-the-boring-parts.org][AI in the lab]].
 
 * Publishing the repo is another kind of exposure
 
