@@ -1,6 +1,6 @@
 #+TITLE: One dead uplink, seven outages, and two words
 #+DATE: 2026-10-28T20:40:00-04:00
-#+ALIASES: /posts/2026-10-25-the-outage-that-looked-like-blocking/
+#+ALIASES: /posts/2026-10-25-the-outage-that-looked-like-blocking/, /posts/2026-10-28-seven-outages-two-words/
 #+FILETAGS: homelab:wireguard:linux:routing:monitoring:ops
 #+DESCRIPTION: An hour spent blaming indexers, seven outages that came from trying to make the fix permanent, and the two-word kernel rule priority that took three days and a throwaway VM to find.
 

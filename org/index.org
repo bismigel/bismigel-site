@@ -31,14 +31,14 @@ flowchart TB
 
 - [[file:2026-09-15-homelab-design.org][Designing a self-hosted homelab on three old computers]] — the shape, and why two
   machines are worse than one.
-- [[file:2026-10-18-observability-is-the-part-im-good-at.org][Homelab observability]] — what I actually watch, and the alerts that page me.
-- [[file:2026-10-28-seven-outages-two-words.org][One dead uplink, seven outages, and two words]] — the incident that taught me the most,
+- [[file:2026-10-18-homelab-observability.org][Homelab observability]] — what I actually watch, and the alerts that page me.
+- [[file:2026-10-28-one-dead-uplink-seven-outages.org][One dead uplink, seven outages, and two words]] — the incident that taught me the most,
   including the three days of wrong theories before it.
 - [[file:2026-10-28-replacing-the-etcd-node.org][Replacing the etcd node]] — swapping a quorum member with no downtime, and the five
   places the old name was hiding.
-- [[file:2026-10-19-native-vs-encapsulation.org][Cilium routing: native vs VXLAN]] — a network decision, and the stale interface that
+- [[file:2026-10-19-cilium-routing.org][Cilium routing: native vs VXLAN]] — a network decision, and the stale interface that
   broke it.
-- [[file:2026-10-16-deepseek-writes-the-boring-parts.org][AI in the lab]] — where a model earns its place, and the leash it runs on.
+- [[file:2026-10-16-ai-in-the-lab.org][AI in the lab]] — where a model earns its place, and the leash it runs on.
 
 ** What this is
 

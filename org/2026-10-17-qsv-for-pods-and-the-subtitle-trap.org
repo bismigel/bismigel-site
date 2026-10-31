@@ -5,8 +5,8 @@
 #+DESCRIPTION: Giving a Jellyfin pod the Intel GPU through the device plugin, and the subtitle burn-in that quietly put the CPU back to work.
 
 #+begin_quote
-*Building the lab.* ← [[file:2026-10-16-deepseek-writes-the-boring-parts.org][AI in the lab: drafts, an agent, and the leash]]
-Next: [[file:2026-10-17-two-tunnels-are-better-than-one.org][Cloudflare Tunnel HA, and what the tunnel is not for]]
+*Building the lab.* ← [[file:2026-10-16-ai-in-the-lab.org][AI in the lab: drafts, an agent, and the leash]]
+Next: [[file:2026-10-17-cloudflare-tunnel-ha.org][Cloudflare Tunnel HA, and what the tunnel is not for]]
 #+end_quote
 
 Two things broke my media box in the same week. For a while, I did not see that they

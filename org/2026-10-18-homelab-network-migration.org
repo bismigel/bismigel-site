@@ -173,9 +173,9 @@ trusts =cni+= and sets =checkReversePath=false=. A oneshot removes a stale
 =flannel.1= before k3s starts.
 
 The full comparison is in
-[[file:2026-10-19-native-vs-encapsulation.org][Native vs encapsulation]].
+[[file:2026-10-19-cilium-routing.org][Cilium routing: native vs VXLAN]].
 The failure path is in
-[[file:2026-10-19-native-vs-encapsulation.org][the Cilium routing guide]].
+[[file:2026-10-19-cilium-routing.org][the Cilium routing guide]].
 
 * Lessons
 

@@ -1,6 +1,6 @@
 #+TITLE: Cilium routing: native vs VXLAN, and the stale port that broke the switch
 #+DATE: 2026-10-19T09:30:00-04:00
-#+ALIASES: /posts/2026-10-19-cilium-vxlan-troubleshooting/
+#+ALIASES: /posts/2026-10-19-cilium-vxlan-troubleshooting/, /posts/2026-10-19-native-vs-encapsulation/
 #+FILETAGS: homelab:kubernetes:cilium:network:troubleshooting
 #+DESCRIPTION: A practical comparison of Cilium native routing and VXLAN encapsulation, why this three-node k3s lab uses VXLAN, and the stale Flannel interface that owned port 8472.
 

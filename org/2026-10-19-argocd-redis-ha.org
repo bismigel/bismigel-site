@@ -1,6 +1,6 @@
 #+TITLE: ArgoCD Redis HA: the official manifests, then the chart
 #+DATE: 2026-10-19T14:00:00-04:00
-#+ALIASES: /posts/2026-10-20-argocd-redis-ha-through-the-chart/
+#+ALIASES: /posts/2026-10-20-argocd-redis-ha-through-the-chart/, /posts/2026-10-19-argocd-redis-ha-on-tainted-k3s/
 #+FILETAGS: homelab:kubernetes:argocd:redis
 #+DESCRIPTION: Two attempts at making ArgoCD Redis highly available on three nodes: a scheduling problem with the official HA manifests, then a Helm chart with a broken announce Service.
 
