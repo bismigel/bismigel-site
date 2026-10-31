@@ -6,6 +6,12 @@
 
   {{/* The landing page explains the site before the date-sorted list does.
          Source: org/index.org -> content/_index.md (see scripts/convert.sh). */}}
+  {{ with .Title }}
+  <header class="page-header home-header">
+    <h1>{{ . | emojify }}</h1>
+    {{ with $.Params.summary }}<p class="page-intro">{{ . }}</p>{{ end }}
+  </header>
+  {{ end }}
   {{ with .Content }}<div class="page-intro home-intro">{{ . }}</div>{{ end }}
 
   <div class="section">

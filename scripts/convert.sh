@@ -96,6 +96,11 @@ done
     "$PANDOC" -f org -t gfm --wrap=none "$isrc" -o "$imd"
     rm -f "$isrc"
     sed -i "s/\\\\'/\'/g" "$imd"
+    # Same sibling-link rewrite the posts loop does: pandoc turns [[file:x.org][y]]
+    # into a relative link to x.org, which does not exist on the site. Without
+    # this the "start here" list is six dead links, which is exactly what shipped
+    # on 2026-10-31 until someone clicked one.
+    sed -i -E 's#\]\(([0-9A-Za-z._-]+)\.org\)#](/posts/\1/)#g' "$imd"
     {
       echo "---"
       echo "title: \"$(iyaml "$ititle")\""
