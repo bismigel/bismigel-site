@@ -117,3 +117,12 @@
   margin: 0.7rem 0 0;
   max-width: 62ch;
 }
+
+/* Home header: the theme's home template had none, so the landing page started
+   mid-sentence with no title. */
+.home-header {
+  margin-bottom: 1.75rem;
+}
+.home-header h1 {
+  margin-bottom: 0.5rem;
+}
