@@ -1,4 +1,4 @@
-#+TITLE: Bakuran homelab
+#+TITLE: Bakuran homelab build log
 #+SUMMARY: Three NixOS hosts, one k3s cluster, everything declarative: the design, the alerts, and the failures that changed them.
 
 I run a homelab the way I would run production: declarative hosts, one GitOps control
