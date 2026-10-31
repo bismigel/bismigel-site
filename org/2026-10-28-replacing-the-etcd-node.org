@@ -8,7 +8,7 @@ closed on a shelf, permanently on charge, doing nothing but keeping quorum. It
 worked. It also had a swollen battery, a Broadcom network card, and no way to
 recover it except walking over and opening the lid.
 
-This is the story of replacing it with a used ThinkCentre M900 Tiny, and of the
+This is the story of replacing it with a used ThinkCentre M700 Tiny, and of the
 three places that still pointed at the old machine after I thought the job was
 done.
 
@@ -24,7 +24,7 @@ change, and a migration is risk you choose. What made it worth the risk:
 - *No remote recovery.* Every other node can be recovered over SSH. That one
   needed hands on it.
 
-The replacement is a ThinkCentre M900 Tiny: i5-6500T, 16 GB, a 256 GB SATA SSD,
+The replacement is a ThinkCentre M700 Tiny: i5-6500T, 16 GB, a 256 GB SATA SSD,
 one Intel I219-V NIC. It is boring hardware, which is the point.
 
 * The installer that could not kexec
