@@ -1,6 +1,6 @@
 #+TITLE: AI in the lab: drafts, an agent, and the leash
 #+DATE: 2026-10-16
-#+ALIASES: /posts/2026-10-18-hermes-homelab-sre-agent/
+#+ALIASES: /posts/2026-10-18-hermes-homelab-sre-agent/, /posts/2026-10-16-deepseek-writes-the-boring-parts/
 #+FILETAGS: ai:homelab:agents:sre
 #+DESCRIPTION: Where a model earns its place in a homelab, and what it takes to run an agent with read-only cluster access, a daily report and guardrails that are technical blocks instead of suggestions.
 

@@ -1,12 +1,12 @@
 #+TITLE: Cloudflare Tunnel HA, and what the tunnel is not for
 #+DATE: 2026-10-17T20:00:00-04:00
-#+ALIASES: /posts/2026-10-27-two-tunnels-are-better-than-one/, /posts/2026-10-18-the-tunnel-isnt-a-fire-hose/, /posts/2026-10-30-the-tunnel-isnt-a-fire-hose/
+#+ALIASES: /posts/2026-10-27-two-tunnels-are-better-than-one/, /posts/2026-10-18-the-tunnel-isnt-a-fire-hose/, /posts/2026-10-30-the-tunnel-isnt-a-fire-hose/, /posts/2026-10-17-two-tunnels-are-better-than-one/
 #+FILETAGS: homelab:kubernetes:cloudflare:media
 #+DESCRIPTION: Two connectors so the front door survives losing a box, and the evening I learned the hard way that the front door is not a media path.
 
 #+begin_quote
 *Building the lab.* ← [[file:2026-10-17-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]]
-Next: [[file:2026-10-18-observability-is-the-part-im-good-at.org][Homelab observability: Prometheus, Grafana and five focused dashboards]]
+Next: [[file:2026-10-18-homelab-observability.org][Homelab observability: Prometheus, Grafana and five focused dashboards]]
 #+end_quote
 
 I only started to worry about the front door after something else broke. Then I saw how
@@ -146,5 +146,5 @@ So the next part is about the thing I am actually good at.
 
 #+begin_quote
 *Building the lab.* Previous: [[file:2026-10-17-qsv-for-pods-and-the-subtitle-trap.org][Handing the GPU to a pod]] ·
-Next: [[file:2026-10-18-observability-is-the-part-im-good-at.org][Homelab observability]]
+Next: [[file:2026-10-18-homelab-observability.org][Homelab observability]]
 #+end_quote
