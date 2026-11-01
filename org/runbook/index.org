@@ -44,6 +44,7 @@ Pick a task from the list below, or start with *Before you start*.
 | The API VIP answers from two nodes                  | 20   |
 | Longhorn has nowhere left to put a replica          | 21   |
 | Change the router without clicking                  | 22   |
+| Put the Wi-Fi on its own VLAN                       | 23   |
 
 Pages 11, 12 and 14 overlap on purpose and are read together: 11 triages the
 symptom, 12 is the pre-flight that stops it happening, 14 is the recovery when it
@@ -63,6 +64,12 @@ Page 22 is the same argument applied to the *router*: the last device in this es
 configured by mouse. It is not really about DNS — it is the loop that makes an
 OPNsense change reviewable, and the two provider traps that make a successful apply
 change nothing at all.
+
+Page 23 extends that to segmentation, and is the page to read before moving anything
+onto a new VLAN: the router half, the switch half, and the one device in the chain
+that has no code path at all. Its most useful line is not a command — it is that
+**a saved value is not an applied value**, which on an access point means restarting
+the radio before you start suspecting the firewall.
 
 * Before you start
 
