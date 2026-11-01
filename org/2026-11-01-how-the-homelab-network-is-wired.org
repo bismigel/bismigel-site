@@ -13,20 +13,30 @@ This is the whole chain, in the order the packets travel, with the mistakes incl
 
 * The chain
 
-#+begin_src
-ISP
- │
- ▼
-Bell Home Hub (Sagemcom)              ← not mine; Advanced DMZ is the only control I have
- │   public address handed straight through to the router's WAN
- ▼
-Dell OptiPlex 5040 · OPNsense 26.1.11_10
- │   em1 = WAN (DHCP, public)      em0 = LAN 192.168.2.1
- ▼
-Netgear GS108Tv3 · OpenWrt 24.10.4
- │   192.168.2.3 · bridge `switch.1` · ports lan1–lan8 (DSA)
- ├──► TP-Link EAP650   192.168.2.2   SSID on VLAN 20
- └──► cluster nodes    192.168.2.80 / .81 / .82   untagged VLAN 1
+#+begin_src mermaid
+flowchart TD
+  ISP["ISP"]
+  HUB["Bell Home Hub (Sagemcom)<br/>Advanced DMZ — not mine, and the only control I have"]
+  R["Dell OptiPlex 5040 · OPNsense 26.1.11_10<br/>em1 = WAN (public, DHCP) · em0 = LAN 192.168.2.1"]
+  SW["Netgear GS108Tv3 · OpenWrt 24.10.4<br/>192.168.2.3 · bridge switch.1 · lan1–lan8 (DSA)"]
+  AP["TP-Link EAP650<br/>192.168.2.2 · standalone, no controller"]
+  EDGE["public edge<br/>*.bismigel.dev via Cloudflare Tunnel"]
+  N82["sitaw-amd .82<br/>platform · ArgoCD · ingress"]
+  N81["calamansi-intel .81<br/>media · QSV"]
+  N80["patola-thinkcentre .80<br/>control plane · Immich"]
+  WIFI["Wi-Fi clients<br/>192.168.20.150–.200"]
+  ADMIN["admin laptop<br/>192.168.20.50"]
+
+  ISP --> HUB
+  HUB -->|"public address via Advanced DMZ"| R
+  R -->|"lan1 · VLAN 1 untagged + VLAN 20 tagged"| SW
+  SW -->|"lan2 · VLAN 1 untagged + VLAN 20 tagged"| AP
+  SW -->|"lan3–lan8 · VLAN 1 untagged"| N82
+  SW --> N81
+  SW --> N80
+  AP -->|"VLAN 20"| WIFI
+  AP -->|"VLAN 20"| ADMIN
+  N82 -->|"cloudflared connector"| EDGE
 #+end_src
 
 Two VLANs, and only two. VLAN 1 is management: every switch port untagged, and it
@@ -142,6 +152,16 @@ switch must not hand out addresses), SSH key-only, LuCI on HTTPS, VLAN 1 = `lan1
 untagged and VLAN 20 = `lan1:t lan2:t` - applied by Ansible, audited by the same
 playbook, and persisted across a reboot.
 
+#+begin_src mermaid
+flowchart LR
+  O["OEM firmware 7.1.0.7<br/>web UI only"] -->|"upload initramfs<br/>→ Image 0"| I["initramfs<br/>192.168.1.1"]
+  I -->|"reboot · the UI's success<br/>message is only the upload"| S["setsid sysupgrade -n<br/>no nohup here"]
+  S --> W["OpenWrt 24.10.4<br/>squashfs + overlay"]
+  W -->|"uci over SSH"| A["Ansible baseline<br/>audit fails on drift"]
+  X["a bad template" ] -->|"corrupt VLAN 1"| F["failsafe<br/>192.168.1.1"]
+  F -->|"reset button: nothing"| W
+#+end_src
+
 * The access point: where I gave up on declarative, and why
 
 The EAP650 is the one device I could not bring into the fold, and the reason is worth
@@ -186,7 +206,7 @@ Segmenting the Wi-Fi was supposed to be the easy part: the router side was alrea
 complete (VLAN device, address, Kea serving two interfaces, four ordered firewall rules,
 NAT), and the switch already carried the tag on `lan1` and `lan2`.
 
-It did not work. Clients on the SSID got no lease at all, and the evidence was as
+Clients on the SSID got no lease at all, and the evidence was as
 clean as evidence gets:
 
 #+begin_src sh
@@ -195,6 +215,15 @@ ifconfig vlan01 | grep -o 'inet [0-9.]*'   # 192.168.20.1   router ready
 sockstat -4 -l | grep -c ':67 '            # 2              Kea serving em0 + vlan01
 pfctl -sr | grep -c vlan01                 # 10             the rules are live
 tcpdump -i vlan01 -n                       # 0 frames       the tag never arrives
+#+end_src
+
+#+begin_src mermaid
+flowchart TD
+  C["Wi-Fi client<br/>sends DHCP DISCOVER untagged"] --> AP["EAP650<br/>VLAN ID saved, radio not restarted"]
+  AP -->|"still UNTAGGED"| SW["GS108Tv3<br/>lan2:t"]
+  SW -->|"no tag to strip — frame stays on VLAN 1"| R["OPNsense em0"]
+  R --> Z["vlan01 sees nothing<br/>tcpdump: 0 frames"]
+  FIX["toggle the SSID / reboot the AP"] -->|"radio adopts tag 20"| OK["first tagged frame on vlan01<br/>= the laptop's .20.50 lease"]
 #+end_src
 
 Zero tagged frames, with a router that was demonstrably ready. I spent a while on the
@@ -226,6 +255,14 @@ taking its reservation.
 | switch (GS108Tv3) | Ansible playbook, audit mode fails on drift | high |
 | cluster | ArgoCD, GitOps end to end | high |
 | access point (EAP650) | **the web UI, by hand** | documented, not automated |
+
+#+begin_src mermaid
+flowchart LR
+  G["git<br/>reviewed as a diff"] -->|"tofu apply"| R["OPNsense<br/>router"]
+  G -->|"ansible-playbook"| S["GS108Tv3<br/>switch"]
+  G -->|"ArgoCD sync"| K["k3s cluster"]
+  H["hand · web UI"] -.->|"one field, twice a year"| A["EAP650<br/>access point"]
+#+end_src
 
 Three out of four being code is not a failure. Knowing exactly which one is not, why,
 and what the alternatives cost - that is the part that makes the estate operable by

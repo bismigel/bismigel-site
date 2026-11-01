@@ -116,20 +116,30 @@ over SSH.
 Four devices in series, then the air. This is the whole physical network, and every
 value below was read from the device itself.
 
-#+begin_src
-ISP
- │
- ▼
-Bell Home Hub (Sagemcom)               ← ISP-owned; Advanced DMZ is the only control
- │   the public address is passed straight through to the router's WAN
- ▼
-Dell OptiPlex 5040 · OPNsense 26.1.11_10
- │   em1 = WAN (DHCP, public)      em0 = LAN 192.168.2.1
- ▼
-Netgear GS108Tv3 · OpenWrt 24.10.4
- │   192.168.2.3 · bridge `switch.1` · ports lan1–lan8 (DSA)
- ├──► TP-Link EAP650   192.168.2.2   SSID tagged into VLAN 20
- └──► cluster nodes    192.168.2.80 / .81 / .82   untagged VLAN 1
+#+begin_src mermaid
+flowchart TD
+  ISP["ISP"]
+  HUB["Bell Home Hub (Sagemcom)<br/>Advanced DMZ — public address passed through"]
+  R["Dell OptiPlex 5040 · OPNsense 26.1.11_10<br/>em1 = WAN (public, DHCP) · em0 = LAN 192.168.2.1"]
+  SW["Netgear GS108Tv3 · OpenWrt 24.10.4<br/>192.168.2.3 · bridge switch.1 · lan1–lan8 (DSA)"]
+  AP["TP-Link EAP650 · 192.168.2.2<br/>standalone · SSID on VLAN 20"]
+  EDGE["Cloudflare Tunnel<br/>*.bismigel.dev"]
+  N82["sitaw-amd .82<br/>platform · ArgoCD · ingress"]
+  N81["calamansi-intel .81<br/>media · QSV"]
+  N80["patola-thinkcentre .80<br/>control plane · etcd"]
+  WIFI["Wi-Fi clients<br/>192.168.20.150–.200"]
+  ADMIN["admin laptop<br/>192.168.20.50"]
+
+  ISP --> HUB
+  HUB -->|"public address via Advanced DMZ"| R
+  R -->|"lan1 · VLAN 1 untagged + VLAN 20 tagged"| SW
+  SW -->|"lan2 · VLAN 1 untagged + VLAN 20 tagged"| AP
+  SW -->|"lan3–lan8 · VLAN 1 untagged"| N82
+  SW --> N81
+  SW --> N80
+  AP -->|"VLAN 20"| WIFI
+  AP -->|"VLAN 20"| ADMIN
+  N82 -->|"cloudflared connectors"| EDGE
 #+end_src
 
 | # | Device | Software | Address | Role |
@@ -153,6 +163,17 @@ to its own network could not disturb the cluster.
 |------+-------+---------+-----|
 | **1** management | `lan1`–`lan8` untagged | `192.168.2.1` | infrastructure and clusters |
 | **20** clients | `lan1:t lan2:t` only | `192.168.20.1` (`vlan01`, tag 20) | Wi-Fi clients |
+
+#+begin_src mermaid
+flowchart LR
+  C["Wi-Fi client"] -->|"associates to the SSID"| AP["EAP650<br/>adds tag 20"]
+  AP -->|"lan2 tagged"| SW["GS108Tv3"]
+  SW -->|"lan1 tagged"| R["OPNsense<br/>vlan01 192.168.20.1"]
+  R --> K["Kea<br/>lease .20.150–.200"]
+  R --> P["pf order<br/>1 admin · 2 DNS · 3 block mgmt · 4 internet"]
+  P --> N["NAT → em1"]
+  P -->|"blocked"| M["192.168.2.0/24"]
+#+end_src
 
 **Addressing.** Infrastructure is static in NixOS (`192.168.2.80`–`.83`, the `192.168.2.100`
 API VIP, `192.168.2.245` admin). Kea serves `192.168.2.150`–`.240` on VLAN 1 and
