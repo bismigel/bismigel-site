@@ -113,8 +113,59 @@ over SSH.
 
 * 3. Network and edge
 
-The LAN is flat and boring. Every host is static; there is no VLAN segmentation.
-That is a known trade-off: simplicity now, a segmentation project later.
+Four devices in series, then the air. This is the whole physical network, and every
+value below was read from the device itself.
+
+#+begin_src
+ISP
+ │
+ ▼
+Bell Home Hub (Sagemcom)               ← ISP-owned; Advanced DMZ is the only control
+ │   the public address is passed straight through to the router's WAN
+ ▼
+Dell OptiPlex 5040 · OPNsense 26.1.11_10
+ │   em1 = WAN (DHCP, public)      em0 = LAN 192.168.2.1
+ ▼
+Netgear GS108Tv3 · OpenWrt 24.10.4
+ │   192.168.2.3 · bridge `switch.1` · ports lan1–lan8 (DSA)
+ ├──► TP-Link EAP650   192.168.2.2   SSID tagged into VLAN 20
+ └──► cluster nodes    192.168.2.80 / .81 / .82   untagged VLAN 1
+#+end_src
+
+| # | Device | Software | Address | Role |
+|---+--------+----------+---------+------|
+| 0 | Bell Home Hub (Sagemcom) | vendor firmware | — | ISP handoff, **Advanced DMZ** for the router's WAN MAC |
+| 1 | Dell OptiPlex 5040 | **OPNsense 26.1.11_10** (FreeBSD 14.3) | `em0` `192.168.2.1` · `em1` public via DHCP | routing, NAT, firewall, DHCP, DNS |
+| 2 | Netgear GS108Tv3 | **OpenWrt 24.10.4** (realtek/rtl838x) | **static `192.168.2.3`** | L2 only: STP + IGMP snooping, **no DHCP server** |
+| 3 | TP-Link Omada EAP650 | firmware 1.5.6, **standalone** | **`.2`** (Kea reservation) | SSID `Master Siomai`, 5 GHz ch 64 |
+
+The gateway moved from the ISP hub to OPNsense on **2026-11-01**. That is the change
+that made the rest possible: an API-driven firewall means the LAN policy is a diff
+that gets reviewed, not a mouse that gets clicked.
+
+**Two VLANs, and only two.** VLAN 1 is management and is the native VLAN on every
+switch port — the router, the switch, the access point and all three cluster nodes
+live there. VLAN 20 is Wi-Fi clients, and it exists on exactly two ports: the uplink
+and the AP's port, both **tagged**. Nothing wired ever sees a tag, so moving the Wi-Fi
+to its own network could not disturb the cluster.
+
+| VLAN | Ports | Gateway | Who |
+|------+-------+---------+-----|
+| **1** management | `lan1`–`lan8` untagged | `192.168.2.1` | infrastructure and clusters |
+| **20** clients | `lan1:t lan2:t` only | `192.168.20.1` (`vlan01`, tag 20) | Wi-Fi clients |
+
+**Addressing.** Infrastructure is static in NixOS (`192.168.2.80`–`.83`, the `192.168.2.100`
+API VIP, `192.168.2.245` admin). Kea serves `192.168.2.150`–`.240` on VLAN 1 and
+`192.168.20.150`–`.200` on VLAN 20, with **two listening sockets**. The admin laptop
+holds `192.168.20.50` by reservation — and is the *only* exception to segmentation,
+so a mistake made while administering the estate is fixable from the laptop.
+
+**Firewall.** VLAN 20 carries four ordered rules and the order is the policy: the
+admin exception first, then DNS to `192.168.2.1`, then a block of everything else
+towards the management network, then internet. The WAN answers on nothing; there are
+no port forwards, no UPnP, and no bridging between the two Wi-Fi islands (the ISP hub
+still broadcasts its own SSID onto the same subnet, which is why "which SSID am I on"
+is a real diagnostic question here).
 
 The **public edge is Cloudflare Tunnel**, not port forwarding:
 
