@@ -1,0 +1,252 @@
+#+TITLE: How this homelab's network is wired: a Bell hub, a Dell running OPNsense, and a Netgear I flashed to OpenWrt
+#+DATE: 2026-11-01T23:10:00-05:00
+#+FILETAGS: homelab:network:openwrt:opnsense:vlan
+#+DESCRIPTION: The exact physical chain behind this site - Bell hub in Advanced DMZ, an OptiPlex running OPNsense, a GS108Tv3 flashed to OpenWrt - how the flash actually went, and why the Wi-Fi access point is the one device that refuses to be declarative.
+
+This site runs from a three-node Kubernetes cluster in a spare room. Under it is a
+network of four boxes, and reading the configs in git tells you almost nothing about
+them: one is a box the ISP controls, one I built from a discarded office PC, one is
+a switch that was never meant to be programmable, and one is a Wi-Fi access point
+that has so far resisted every attempt to manage it as code.
+
+This is the whole chain, in the order the packets travel, with the mistakes included.
+
+* The chain
+
+#+begin_src
+ISP
+ │
+ ▼
+Bell Home Hub (Sagemcom)              ← not mine; Advanced DMZ is the only control I have
+ │   public address handed straight through to the router's WAN
+ ▼
+Dell OptiPlex 5040 · OPNsense 26.1.11_10
+ │   em1 = WAN (DHCP, public)      em0 = LAN 192.168.2.1
+ ▼
+Netgear GS108Tv3 · OpenWrt 24.10.4
+ │   192.168.2.3 · bridge `switch.1` · ports lan1–lan8 (DSA)
+ ├──► TP-Link EAP650   192.168.2.2   SSID on VLAN 20
+ └──► cluster nodes    192.168.2.80 / .81 / .82   untagged VLAN 1
+#+end_src
+
+Two VLANs, and only two. VLAN 1 is management: every switch port untagged, and it
+carries the router, the switch, the access point and all three cluster nodes. VLAN 20
+is Wi-Fi clients, and it exists on exactly two ports - the uplink and the AP port -
+both tagged. Nothing wired ever sees a tag, which is why moving the Wi-Fi to its own
+VLAN could not take the cluster down. That is a property of the switch config, not
+luck, and it is the single most useful decision in the whole build.
+
+* The Bell hub: a box I rent, not a box I run
+
+The internet arrives through a Bell Home Hub. Until recently it was also the gateway,
+the DHCP server, and the Wi-Fi - one device doing four jobs badly, with a web UI that
+will not tell you what it is doing.
+
+The trick that made it usable is *Advanced DMZ*. A normal DMZ forwards selected ports
+to a host behind the hub's NAT. Advanced DMZ passes the **public address itself**
+through to one MAC, so the device behind it gets the real WAN address and the hub gets
+out of the way. That sounds like it should be a checkbox with no consequences. It was
+not.
+
+**The scariest few minutes of the build:** when the DMZ first engaged, the router's WAN
+interface was still typed as an *internal* interface - because it had been a LAN port
+while the box was being configured - and OPNsense's default rule for an internal
+interface is *allow all*. For as long as that lasted, the router's web GUI and SSH were
+answering on a public address. The fix was one word: convert `em1` from internal to
+**`wan`**, which installs the default-deny policy. Since then the WAN answers on
+nothing, verified from outside the network rather than from the LAN (probing your own
+public address from inside gives a false positive - the hub answers instead).
+
+Two details worth writing down, because both will bite anyone who repeats this:
+
+- The hub's own Wi-Fi keeps broadcasting. Its SSID puts devices on the *same*
+  `192.168.2.0/24` as the router's LAN, with no route between them. Two islands, one
+  subnet, one gateway address - a machine that joins both gets two default routes on
+  one network and behaves in ways that look like a firewall problem.
+- The public address is **not** stable. Never write it into a file; every check has to
+  ask the interface.
+
+* The Dell: why a discarded office PC is the router
+
+An OptiPlex 5040 with two NICs, running **OPNsense 26.1.11_10**. It replaced the hub
+as `.1` on 2026-11-01, which is the day the LAN stopped being a consumer network.
+
+OPNsense was chosen for one reason above all others: it has an API that covers
+essentially everything. The router is the device where clicking is most dangerous - a
+mistyped rule takes the whole estate off the network - so it is the device that most
+deserves to be reviewed as a diff. It now runs:
+
+| layer | what it does | how it is managed |
+|---|---|---|
+| WAN | DHCP from the hub, public address via Advanced DMZ | config |
+| LAN | `192.168.2.1/24` on `em0` | config |
+| VLAN 20 | `vlan01`, tag 20 on `em0`, `192.168.20.1/24` | **OpenTofu** |
+| DHCP | Kea, two subnets, two sockets | **OpenTofu** (reservations), API (subnets) |
+| DNS | Unbound, advertised as the only resolver | config |
+| NAT | outbound automatic, per interface | generated |
+| Firewall | deny inbound on WAN; four ordered rules per VLAN | **OpenTofu** |
+
+Moving the router's policy into `opentofu/opnsense/` found a family of traps worth a
+runbook of its own ([[file:runbook/22-changing-the-router-without-clicking.org][runbook 22]]),
+the recurring one being that **a hand-written `config.xml` is not model-saved state**:
+the generator reads flags from the model, so a value you typed and can see is a value
+the running system may not be using.
+
+* The switch: flashing a GS108Tv3 to OpenWrt
+
+This is the part people ask about, so here it is in full.
+
+**Why.** The GS108Tv3 is a managed 8-port switch. Its OEM firmware exposes spanning
+tree, IGMP snooping, a cloud agent and SNMP - all of it **web-UI only**. There are no
+CLI verbs (verified from the switch's own command list; `no cloudAgent` silently does
+nothing). A device you cannot audit or diff is a device you cannot reason about, and
+this one sits between the router and everything else.
+
+Under **OpenWrt 24.10.4** (`realtek/rtl838x`, kernel 6.6.110) all of it is `uci` -
+text, over SSH. That is the entire justification for the risk.
+
+**How it went.** Not TFTP, and not a serial console: the OEM web UI accepts the
+OpenWrt **initramfs** image directly.
+
+1. Upload the **initramfs** image in the Netgear UI. It is written to **Image 0** and
+   `show boot` reports it `Active*` - selected for next boot.
+2. **The UI's success message is the upload, not the flash.** "Software file update
+   through HTTP is complete" means the bytes arrived. The switch does not reboot
+   itself.
+3. Reboot. The Netgear UI disappears; OpenWrt answers on its default **`192.168.1.1`**.
+4. From there, `sysupgrade -n` to the squashfs image for a persistent install. There is
+   no `nohup` in the initramfs, so use `setsid sysupgrade -n …` - it has to survive the
+   SSH session dying mid-write, because it will.
+
+Traps, in the order they cost time:
+
+- **Never upload the sysupgrade image to the Netgear UI.** It takes initramfs. Getting
+  that backwards is how these switches end up needing a serial cable.
+- **The port LEDs stop working.** It is a known OpenWrt issue for this model. Verify
+  link state with `ping` and `ip link`, never by looking at the lights - a dark port may
+  be passing traffic.
+- **The reset button does nothing useful.** Recovery is the failsafe image on
+  `192.168.1.1`, which is worth knowing *before* you need it.
+
+Which brings me to how I found out. A week later I rewrote the switch's Ansible
+baseline, and my template lost the translation of the OEM port list (`;`-separated)
+into OpenWrt's space-separated `ports`. The result was a corrupt VLAN 1: the AP's port
+became tagged-only and two ports went dead. The switch did not fail loudly - it just
+stopped bridging. Recovery was the failsafe at `192.168.1.1`, and the ordering that
+matters is now burned in: **install the SSH key before disabling password auth**, because
+a factory reset wipes `/etc/dropbear/authorized_keys`. Do it the other way round and
+you are locked out of a device with no console.
+
+Now the switch is `uci` all the way down: STP on, IGMP snooping on, no DHCP server (a
+switch must not hand out addresses), SSH key-only, LuCI on HTTPS, VLAN 1 = `lan1..lan8`
+untagged and VLAN 20 = `lan1:t lan2:t` - applied by Ansible, audited by the same
+playbook, and persisted across a reboot.
+
+* The access point: where I gave up on declarative, and why
+
+The EAP650 is the one device I could not bring into the fold, and the reason is worth
+being precise about, because "the vendor is bad" is not a reason - it is a shrug.
+
+**What it offers.** SSH works, but it lands in an `EAP CLI` whose entire *Public Mode*
+command set is `show …`, `ping`, `dnslookup`, `packet-capture`, `history`. There is
+**no configuration verb at all**. All configuration is the web UI, which uses an
+RSA-wrapped JS login: not scriptable, not curl-able. Enabling the one diagnostic
+feature that looked promising (`diagnose inform`, which phones home to a controller)
+wedged the web server - `443` closed, `80` hanging - and required a reboot to undo.
+
+**What I tried.** The AP is an Omada device, and Omada has a controller with an API, so
+the right answer looked obvious: run the controller and manage the AP through it. I
+deployed it as a container and wrote an OpenTofu root against the community provider
+(`registry.terraform.io/wncservices/omada` v0.13.2 - Terraform-registry-only, so it
+needs an explicit provider hostname in the `required_providers` block). It failed four
+times for four different reasons:
+
+- the provider reported the site name truncated (`bakuran` where the controller had
+  `bakuransite`), so nothing matched;
+- the `wlan_group` already existed and the provider had no import path for it
+  (`omada api error -33200`);
+- there is no documented way to discover the uuid needed to import anything;
+- the controller's bundled MongoDB speaks wire version 6, which current `mongosh`
+  refuses, so there was no fallback for reading state directly.
+
+**What I did.** Removed the controller, destroyed the DNS override, kept the research
+in a parked directory with a README, and set the SSID's VLAN **by hand**. The honest
+summary is not "the controller is slow" - it is that making *one field on one device*
+declarative requires a controller, a database, a provider with an import path and a
+working API, and that stack was more fragile than the field. The field has been changed
+once in the life of this network. The controller would have been running every day.
+
+That is the trade, stated plainly: **declarative is worth it where change is frequent
+and mistakes are expensive (the router), and it is not worth it where change happens
+once and a checkbox is the whole state (the AP).**
+
+* The Wi-Fi VLAN, and the two hours it cost
+
+Segmenting the Wi-Fi was supposed to be the easy part: the router side was already
+complete (VLAN device, address, Kea serving two interfaces, four ordered firewall rules,
+NAT), and the switch already carried the tag on `lan1` and `lan2`.
+
+It did not work. Clients on the SSID got no lease at all, and the evidence was as
+clean as evidence gets:
+
+#+begin_src sh
+# on the router, while a client joined the SSID
+ifconfig vlan01 | grep -o 'inet [0-9.]*'   # 192.168.20.1   router ready
+sockstat -4 -l | grep -c ':67 '            # 2              Kea serving em0 + vlan01
+pfctl -sr | grep -c vlan01                 # 10             the rules are live
+tcpdump -i vlan01 -n                       # 0 frames       the tag never arrives
+#+end_src
+
+Zero tagged frames, with a router that was demonstrably ready. I spent a while on the
+wrong side of that: I "found" that no NAT rule existed for `192.168.20.0/24`, and
+reported it. It was not true. pf writes the network as `(vlan01:network)`, so
+
+#+begin_src sh
+pfctl -sn | grep 192.168.20    # nothing, on a perfectly healthy router
+pfctl -sn | grep vlan01        # nat on em1 inet from (vlan01:network) to any ...
+#+end_src
+
+That is a check that answers the wrong question - the exact failure mode this homelab
+keeps producing. The second false conclusion was mine as well: after the lease appeared,
+"no internet" turned out to be my laptop, which had both NICs up, so its packets left
+the **wire** with a VLAN-20 source and were dropped by the router's own anti-spoof rule.
+Two default routes on one subnet is the bug, not the firewall.
+
+The actual cause was smaller than either: **the access point had saved the VLAN ID but
+had not adopted it.** Until the SSID was toggled (or the AP rebooted), it kept bridging
+clients untagged. The value was correct the entire time; the radio disagreed with it.
+The moment it restarted, the first tagged frame ever seen on `vlan01` was the laptop
+taking its reservation.
+
+* What is code, and what is a checkbox
+
+| device | managed by | confidence |
+|---|---|---|
+| router (OPNsense) | OpenTofu + Ansible, `tofu plan` clean | high |
+| switch (GS108Tv3) | Ansible playbook, audit mode fails on drift | high |
+| cluster | ArgoCD, GitOps end to end | high |
+| access point (EAP650) | **the web UI, by hand** | documented, not automated |
+
+Three out of four being code is not a failure. Knowing exactly which one is not, why,
+and what the alternatives cost - that is the part that makes the estate operable by
+someone who is not me at 2 a.m.
+
+* Five things worth keeping
+
+1. **A saved value is not an applied value.** Not on the router's model, not on the
+   AP's radio. Verify by observation - a capture, a lease, a socket - never by
+   re-reading the thing you just wrote.
+2. **A check that cannot fail in the right way is worse than no check.** `grep 192.168.20`
+   against pf's output is always empty; it will never tell you anything.
+3. **When measuring the network, remove the second NIC.** Otherwise you will debug your
+   own laptop's routing table and call it a firewall.
+4. **Flash the switch; leave the access point alone.** Pick the device whose
+   configuration is a diff, and be at peace with the one whose configuration is a
+   checkbox - as long as the checkbox is written down.
+5. **Segmentation is a switch property first.** Because the tag exists only on two
+   ports, the entire Wi-Fi migration was reversible by rejoining an SSID. Build the
+   thing so that the scary part is not scary.
+
+The full specification of this chain, with MACs, addresses, the VLAN plan and the
+verification commands, lives in the homelab's network reference; the click-by-click
+procedure for repeating the VLAN work is [[file:runbook/23-put-the-wifi-on-its-own-vlan.org][runbook 23]].

@@ -1,0 +1,132 @@
+#+TITLE: Put the Wi-Fi on its own VLAN
+#+SUMMARY: The full chain for a segmented network on OPNsense - and the three places where a correct-looking change does nothing at all.
+#+GROUP: Platform
+
+Segmentation here is one rule with one exception: **everything on the clients VLAN is blocked from
+`192.168.2.0/24`, except one laptop that administers the estate.** Everything else in this page
+exists to make that true.
+
+* Who moves, and who does not
+
+Only **Wi-Fi clients** move. `VLAN 20` is tagged on exactly two switch ports - the router's and the
+AP's - so the cluster nodes, the switch's own management and anything wired are untouched.
+
+| device | effect |
+|---|---|
+| router `.1`, switch `.3` | none - management stays on VLAN 1 |
+| cluster nodes `.80`/`.81`/`.82` | **none at all** - those ports never carry VLAN 20 |
+| this laptop | moves to `.20.50` and **keeps full access** (the exception) |
+| phones, tablets, TV box | move to `.20.x` and lose all management access |
+
+**What breaks, predictably:** mDNS/Bonjour (AirPlay, Chromecast, HomeKit, printers) does not cross a
+VLAN boundary; anything with a LAN IP hard-coded (Jellyfin at `.81:8096`, Immich at `.80`, ArgoCD,
+SMB); and any device that expects a Bell-LAN peer, such as the Fibe TV box. Public hostnames are
+fine - they go out through Cloudflare.
+
+* The chain, in order
+
+  1. **Create the VLAN through OpenTofu**, never by hand:
+
+     #+begin_src hcl
+     resource "opnsense_interfaces_vlan" "clients" {
+       parent      = "em0"
+       tag         = 20
+       description = "CLIENTS"
+     }
+     #+end_src
+
+     This is what makes OPNsense *see* the VLAN. A hand-written `<vlans>` block in `config.xml`
+     produces a device at the OS level that the rest of the system cannot enumerate - and at boot
+     OPNsense rebuilds that entry as a **blank** device (`vlan: 0`, `parent: none`). That mistake
+     cost a reboot's worth of confusion on 2026-11-01.
+
+  2. **Assign it and give it an address.** No provider resource exists for assignment, so this is
+     a `config.xml` write plus the *global* apply:
+
+     #+begin_src sh
+     # inside interfaces.inc context: interfaces_configure() applies every interface.
+     # interface_configure('opt1') is NOT enough - it silently does nothing.
+     #+end_src
+
+     (The GUI equivalent, if you would rather click: `Interfaces → Other Types → VLAN`, then
+     `Interfaces → Assignments`, then set `192.168.20.1/24`.)
+
+  3. **Tell Kea to serve it** - and this one only works in the UI:
+     `Services → Kea DHCP → DHCPv4 → Settings` → tick the interface next to `LAN` → Save.
+
+* The trap that costs the most time
+
+**A hand-written value is not a model-saved value.** After step 2, `config.xml` already read
+`<interfaces>lan,opt1</interfaces>` - correct - yet Kea's generated config still listed only
+`em0`, because the model kept `opt1` as `selected: 0`. The generator reads the model's flags, not
+the text. Posting the model back to `/api/kea/dhcpv4/set` returns `Unexpected error`; the checkbox
+is the only thing that sets the flag.
+
+So the check is not "is the config right", it is:
+
+#+begin_src sh
+ssh root@192.168.2.1 'grep -A4 "\"interfaces\"" /usr/local/etc/kea/kea-dhcp4.conf'
+# want both devices: [ "vlan01", "em0" ]
+# and: sockstat -4 -l | grep -c ':67 '   -> 2, one socket per interface
+#+end_src
+
+* The rules, and the one that must come first
+
+Four firewall rules on the clients interface, and **the order is the policy**:
+
+| seq | action | source | destination | why |
+|---|---|---|---|---|
+| 1 | pass | `.20.50` | `192.168.2.0/24` | the admin laptop - no port limits |
+| 2 | pass | `.20.0/24` | `192.168.2.1` port 53 | DNS. **Without this nobody resolves** |
+| 3 | block | `.20.0/24` | `192.168.2.0/24` | the segmentation |
+| 4 | pass | `.20.0/24` | any | internet |
+
+Rule 2 exists because the DHCP scope hands out `192.168.2.1` as the resolver - inside the network
+rule 3 blocks. Omitting it produces "connected, no internet" on every client while the admin laptop
+works perfectly, which is exactly how the bug hides. The exception is keyed on a **fixed reservation**
+rather than a MAC: the provider's rule schema has no MAC matcher (`filter.source` takes net/port only).
+
+* The AP: the only step with no code path
+
+Tag an SSID into `VLAN 20` on the AP, and put that SSID on the switch port that is tagged
+(`lan2` in this estate). Keep the existing SSID on VLAN 1 until the migration is proven - rollback
+is then "rejoin the old SSID" rather than "undo a VLAN".
+
+**Then restart the radio. Toggling the SSID off and on - or rebooting the AP - is part of the step,
+not a troubleshooting afterthought.** On this firmware the VLAN field saves to the config before the
+radio adopts it, and until the restart the AP keeps bridging clients **untagged**. Everything
+upstream can be perfect and nothing will happen.
+
+That is exactly what it looks like when it fails, and it is worth recognising the shape:
+
+#+begin_src sh
+# on the router, with a client joining the SSID and getting no lease
+ifconfig vlan01 | grep -o 'inet [0-9.]*'          # 192.168.20.1      -> router is ready
+sockstat -4 -l | grep -c ':67 '                    # 2                 -> Kea serves both
+pfctl -sr | grep -c vlan01                         # 10                -> the 4 rules are live
+ssh root@192.168.2.1 'tcpdump -i vlan01 -n -c 5'   # 0 frames          -> the tag never arrives
+#+end_src
+
+Zero frames on `vlan01` with a working router means the problem is *the tag*, and the tag has only
+two possible homes: the AP's SSID setting, or the switch port. In this estate `uci show network`
+proves the switch (`lan1:t lan2:t`), which leaves the AP - and the answer there was a restart.
+
+Two false conclusions to avoid while you are in this state:
+
+- **`pfctl -sn | grep 192.168.20` returns nothing on a healthy router.** pf writes the network as
+  `(vlan01:network)`. Grep for `vlan01`.
+- **A client that has a `192.168.20.x` lease but no internet may not be the router's fault.** If the
+  machine has two NICs and the wired one has the better default route, its packets leave the *wire*
+  carrying a VLAN-20 source and the router's own anti-spoof rule drops them. Two default routes on
+  one subnet is the bug; `ipv4.never-default yes` on the wire is the test.
+
+If casting matters, install the **mDNS repeater** plugin as part of the same change; otherwise the
+first phone you migrate cannot see the TV.
+
+* Rollback
+
+1. Rejoin the untagged SSID (instant, if step above was followed).
+2. `tofu destroy -target=opnsense_interfaces_vlan.clients` and remove the Kea subnet/rules - or
+   simply untick the interface in Kea, which stops DHCP on the VLAN immediately.
+3. Nothing on the management network is affected at any point, so the estate stays reachable
+   throughout.
