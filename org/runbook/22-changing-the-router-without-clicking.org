@@ -1,0 +1,138 @@
+#+TITLE: Change the router without clicking
+#+SUMMARY: The OpenTofu loop for OPNsense — backend credentials, adoption by import, two provider traps that make a successful apply a lie, and how to roll back.
+#+GROUP: Operations
+
+On 2026-11-01 the DHCP DNS servers had to change: the nodes were resolving through
+=1.1.1.1=, which on the media host is routed *inside* the WireGuard tunnel, so an
+egress fault became a DNS fault and forty pods landed in =ImagePullBackOff=.
+
+The first two attempts were hand-written API calls to the live DHCP server. Both
+returned =Unexpected error=, and guessing write payloads against the thing that
+hands out every address on the LAN is not a trade worth making. The declarative
+path existed all along — it needed a state backend, not a new tool.
+
+* What you need before you start
+
+  | Thing | Where |
+  |-------+-------|
+  | OPNsense API key | =~/router-stage/opnsense-api-key.txt= (a =key== / =secret== pair) |
+  | R2 credentials for the S3 state backend | the *same* key the backup job uses, in =/root/.config/homelab-backup.env= on the platform host |
+  | OpenTofu | =nix run nixpkgs#opentofu -- …= |
+
+  No new credential is needed for state: the backend bucket (=homelab-backups=) and
+  endpoint are the ones the nightly backups already write to. Map the R2 names onto
+  the AWS ones, nothing else:
+
+  #+begin_src sh
+  ssh root@<platform> 'grep -E "^R2_(ACCESS_KEY_ID|SECRET_ACCESS_KEY)" /root/.config/homelab-backup.env' \
+    > ~/.config/opentofu/r2.env
+  chmod 600 ~/.config/opentofu/r2.env
+  #+end_src
+
+  #+begin_src sh
+  set -a; . ~/.config/opentofu/r2.env; set +a
+  export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
+  export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
+  export AWS_DEFAULT_REGION=auto
+  export TF_VAR_opnsense_api_key="$(grep -oP '(?<=key=)\S+' ~/router-stage/opnsense-api-key.txt)"
+  export TF_VAR_opnsense_api_secret="$(grep -oP '(?<=secret=)\S+' ~/router-stage/opnsense-api-key.txt)"
+  export TF_VAR_opnsense_uri="https://192.168.2.1"
+  #+end_src
+
+  Symptom if you skip this: =tofu init= fails with
+  =no EC2 IMDS role found, operation error ec2imds: GetMetadata= — that is the S3
+  backend looking for credentials, not a provider problem.
+
+* The loop
+
+  1. **Write the change in =opentofu/opnsense/=.** If the object already exists in
+     the router, use an =import= block — never let tofu create a second one.
+  2. **=tofu init=** once per working copy.
+  3. **=tofu plan= and read it.** This is the only step that catches a wrong
+     declaration before it reaches the router.
+  4. **=tofu apply=**.
+  5. **=tofu plan= again.** It must say *No changes*. If it does not, the state and
+     the router disagree and the change is not finished.
+  6. **Commit.** The plan output belongs in the PR description, because it is the
+     evidence that the apply did what the diff said.
+
+* Adoption: read the first plan, do not assume
+
+  The subnet had been deliberately unmanaged ("pools we do not want to bake in").
+  Adopting it is an =import= block plus a resource whose attributes match what is
+  already there:
+
+  #+begin_src hcl
+  import {
+    to = opnsense_kea_dhcpv4_subnet.lan
+    id = "4a1b6c22-1111-4aaa-8bbb-000000000001"
+  }
+  #+end_src
+
+  The **first plan is a census of what you did not know.** It reported two things
+  worth reading rather than discovering later:
+
+  - the live description was ="homelab LAN"= — declaring =""= would have silently
+    cleared a field nobody meant to touch;
+  - the pool was stored as =192.168.2.150-192.168.2.240= and the provider wants the
+    spaced form =192.168.2.150 - 192.168.2.240=.
+
+  After the import applies, the plan must show **only** the change you intended.
+
+* Two traps that make a green apply a lie
+
+  **1. =dns_servers= is a =Set=, so order is lost.** Asking for
+  =["192.168.2.1", "1.1.1.1"]= applies as =1.1.1.1,192.168.2.1= — alphabetically
+  sorted — and Kea sends them in that order. Clients then try the tunnelled resolver
+  *first*, which defeats the entire change while every command reports success.
+  There is no ordered alternative resource in the provider, so hand out **one**
+  resolver and move the fallback into unbound's upstreams.
+
+  **2. =auto_collect= must be =false=.** With it on (the default), OPNsense keeps the
+  subnet's option data in sync from the interface configuration and
+  **=routers=, =dns_servers= and =ntp_servers= are ignored** — the apply reports
+  success and changes nothing. Verified by applying both ways, same day.
+
+  Both are the same shape as the other traps in this estate: *a change that cannot
+  fail is a change that never happened.* Read the router back after an apply, every
+  time.
+
+* Verify — read the router, not the exit code
+
+  #+begin_src sh
+  # DNS servers Kea is actually offering the LAN
+  curl -sk -u "$KEY:$SECRET" https://192.168.2.1/api/kea/dhcpv4/searchSubnet \
+    | jq -r '.rows[0].option_data.domain_name_servers'
+  # the two things that must not have moved
+  curl -sk -u "$KEY:$SECRET" https://192.168.2.1/api/kea/dhcpv4/searchSubnet \
+    | jq -r '.rows[0] | .pools, .option_data.routers'
+  # the service is still serving
+  curl -sk -u "$KEY:$SECRET" https://192.168.2.1/api/kea/service/status | jq -r .status
+  #+end_src
+
+  Then from a DHCP client after its next renewal:
+  =resolvectl status | grep 'DNS Servers'=. A DHCP client only picks the new value
+  up when its lease renews — a static host never will, and =.81= needed an hour.
+
+* Rollback
+
+  Revert the commit, =tofu apply=, and the router returns to the previous values —
+  that is the whole point of state. If the router itself is wedged, the config export
+  taken before the change restores it whole:
+
+  #+begin_src sh
+  curl -sk -u "$KEY:$SECRET" https://192.168.2.1/api/core/backup/download/this \
+    > ~/router-stage/config-backup-$(date +%Y-%m-%dT%H%M).xml
+  chmod 600 ~/router-stage/config-backup-*.xml
+  #+end_src
+
+  **Take that export before any DHCP change**, without exception. It contains the
+  WebGUI TLS key and the root password hash, so it belongs in =~/router-stage/= and
+  never in a repository — the repo's =.gitignore= refuses =*.xml= for exactly this.
+
+* What is still clicked
+
+  As of 2026-11-01 the router holds **26 firewall rules and 7 aliases** that are not
+  in code. The same loop applies: import them, read the first plan, and change them
+  only from that point. Until then, treat a firewall change as the last thing still
+  done by mouse, and write down what you clicked.
