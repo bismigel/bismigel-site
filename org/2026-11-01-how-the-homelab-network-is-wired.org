@@ -31,9 +31,10 @@ flowchart TD
   HUB -->|"public address via Advanced DMZ"| R
   R -->|"lan1 · VLAN 1 untagged + VLAN 20 tagged"| SW
   SW -->|"lan2 · VLAN 1 untagged + VLAN 20 tagged"| AP
-  SW -->|"lan3–lan8 · VLAN 1 untagged"| N82
-  SW --> N81
-  SW --> N80
+  SW -->|"lan3 · VLAN 1"| N80
+  SW -->|"lan4 · VLAN 1"| N82
+  SW -->|"lan5 · VLAN 1"| N81
+  SW -->|"lan7 · VLAN 1"| ADM2["admin laptop, wired<br/>192.168.2.150"]
   AP -->|"VLAN 20"| WIFI
   AP -->|"VLAN 20"| ADMIN
   N82 -->|"cloudflared connector"| EDGE

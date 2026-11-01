@@ -134,9 +134,10 @@ flowchart TD
   HUB -->|"public address via Advanced DMZ"| R
   R -->|"lan1 · VLAN 1 untagged + VLAN 20 tagged"| SW
   SW -->|"lan2 · VLAN 1 untagged + VLAN 20 tagged"| AP
-  SW -->|"lan3–lan8 · VLAN 1 untagged"| N82
-  SW --> N81
-  SW --> N80
+  SW -->|"lan3 · VLAN 1"| N80
+  SW -->|"lan4 · VLAN 1"| N82
+  SW -->|"lan5 · VLAN 1"| N81
+  SW -->|"lan7 · VLAN 1"| ADM2["admin laptop, wired<br/>192.168.2.150"]
   AP -->|"VLAN 20"| WIFI
   AP -->|"VLAN 20"| ADMIN
   N82 -->|"cloudflared connectors"| EDGE
@@ -148,6 +149,12 @@ flowchart TD
 | 1 | Dell OptiPlex 5040 | **OPNsense 26.1.11_10** (FreeBSD 14.3) | `em0` `192.168.2.1` · `em1` public via DHCP | routing, NAT, firewall, DHCP, DNS |
 | 2 | Netgear GS108Tv3 | **OpenWrt 24.10.4** (realtek/rtl838x) | **static `192.168.2.3`** | L2 only: STP + IGMP snooping, **no DHCP server** |
 | 3 | TP-Link Omada EAP650 | firmware 1.5.6, **standalone** | **`.2`** (Kea reservation) | SSID `Master Siomai`, 5 GHz ch 64 |
+
+The switch's port map, read from the device on 2026-11-01 rather than assumed:
+`lan1` OPNsense uplink · `lan2` access point · `lan3` `.80` · `lan4` `.82` ·
+`lan5` `.81` · `lan6` free · `lan7` admin workstation · `lan8` an unidentified
+device. Only `lan1` and `lan2` carry a VLAN tag; every port is untagged VLAN 1, so
+adding a node needs no switch change at all.
 
 The gateway moved from the ISP hub to OPNsense on **2026-11-01**. That is the change
 that made the rest possible: an API-driven firewall means the LAN policy is a diff
