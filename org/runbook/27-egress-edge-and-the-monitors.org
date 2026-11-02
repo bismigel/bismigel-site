@@ -1,0 +1,142 @@
+#+TITLE: Egress, the public edge, and the monitors themselves
+#+GROUP: Platform
+#+SUMMARY: One section per alert for the WireGuard tunnel, Cloudflare, and the checks that watch the checks.
+
+These three groups sit in a chain: the tunnel carries egress, Cloudflare carries ingress,
+and the monitors prove both still work. When several of these fire at once, work from the
+outside in — a broken tunnel makes Cloudflare and the public probes look broken too.
+
+* WireGuardNoHandshake
+
+The Proton tunnel has no recent handshake. **A handshake alone proves nothing** — an hour
+of handshaking while blackholing was one of the seven outages on 2026-10-25 — but *no*
+handshake means the peer or the network is gone.
+
+#+begin_src sh
+ssh <media-node> 'wg show proton0; ip -4 rule show; ip route show table 51820'
+#+end_src
+
+* WireGuardNoEgress
+
+The tunnel handshakes but nothing leaves. This is the alert that would have short-circuited
+2026-10-25, when every app reported the failure differently and none of them said
+"egress".
+
+#+begin_src sh
+ssh <media-node> 'curl -s -o /dev/null -w "%{http_code}\n" -m 8 https://1.1.1.1/'
+#+end_src
+
+A 301 or a 200 is fine; =000= is not. If the interface exists and the handshake is fresh,
+suspect the peer, then the key.
+
+* WireGuardRestarted
+
+The unit restarted. On this node that is almost always a deploy: =switch-to-configuration=
+restarts a unit whose definition changed, which deletes and recreates the interface and
+strands the node. Run =scripts/preflight-wg.sh= **before** every deploy that touches that
+host; it compares the live unit with the one the repo would produce and says whether the
+tunnel will restart.
+
+* WireGuardMetricsMissing
+
+The exporter stopped reporting, so the three alerts above cannot fire. This is a monitor
+whose metric never arrives being mistaken for a healthy tunnel.
+
+* PublicProbeDown
+
+Blackbox cannot reach a public hostname from outside. Check in this order: the tunnel, the
+ingress, the app — because all three look the same from a probe.
+
+* PublicSLOFastBurn
+
+The availability SLO is burning its budget at the fast rate (a two-hour window). This is a
+*consequence*: find the cause among the app-level alerts rather than treating the burn
+rate as the problem.
+
+* PublicSLOSlowBurn
+
+The same budget at the slow rate (a six-hour window). Expect this one to keep reporting an
+outage that has already been fixed — the window has to slide past it. Nothing to do but
+wait, once the cause is fixed.
+
+* CloudflareTunnelDown
+
+The Cloudflare Tunnel has no healthy connector. Ingress over `*.bismigel.dev` is dead for
+every hostname at once.
+
+#+begin_src sh
+curl -s http://127.0.0.1:8788/client/v4/accounts/<account>/cfd_tunnel?is_deleted=false | jq '.result[].status'
+#+end_src
+
+* CloudflareTunnelSingleConnector
+
+Only one connector is healthy. This is the state in which losing one node becomes an edge
+outage — connectors run on both `.81` and `.82` precisely so this stays above one.
+
+* CloudflareZonePaused
+
+The zone is paused: every record stops resolving, immediately. Nothing in the cluster can
+cause this; someone paused it in the dashboard.
+
+* CloudflareZoneNotActive
+
+The zone is not in =active= state (pending, moved, or otherwise). DNS stops being served.
+
+* CloudflareCertificateInactive
+
+The edge certificate is not active, so TLS handshakes fail at Cloudflare. Usually an
+expired or pending certificate for the zone.
+
+* CloudflareExporterStale
+
+The Cloudflare exporter has not refreshed, so all four alerts above are blind. Check the
+exporter pod before believing the silence.
+
+* AlertmanagerNotReceivingAlerts
+
+Prometheus is evaluating rules but Alertmanager is not receiving them. Everything can be
+firing and nobody hears it — the mirror image of `Watchdog` going quiet.
+
+* AlertmanagerNotificationFailing
+
+Alertmanager cannot deliver notifications (Telegram). Alerts are being produced and
+dropped at the last hop.
+
+#+begin_src sh
+kubectl -n monitoring logs deploy/alertmanager --tail=30 | grep -i notif
+#+end_src
+
+* StatusApiCheckFailing
+
+One of `status-api`'s functional checks failed: a service is up but not doing its job.
+The detail view says which and why:
+
+#+begin_src sh
+curl -u "$STATUS_USER:$STATUS_PASS" https://status.bismigel.dev/api/detail
+#+end_src
+
+The checks that matter most in practice: `radarr-download-clients` / `sonarr-download-clients`
+(the arr cannot authenticate to qBittorrent), `qbittorrent-login` (its config came back
+without a password), `jellyfin-library` (pod Ready, library empty).
+
+* StatusApiNotScraped
+
+No `status_api_check_ok` series at all for 15 minutes. **A dead checker and a healthy
+estate look identical from outside** — which is why this alert exists and why it is
+critical. Check the pod, then the NetworkPolicy between `monitoring` and `apps`.
+
+* StrayCNIAddress
+
+A pod was allocated an address the **node itself** owns. The pod looks scheduled and is
+unreachable, and the failure reads like an application bug. Caused by a stale CNI
+interface (a leftover `cni0` or `flannel.1`) that still holds the address.
+
+* StrayCNIMetricsMissing
+
+The sweep that looks for stray CNI addresses is no longer reporting. **This is the
+dangerous state**, not the one above: no signal is not the same as no problem. Check the
+timer on the host and the textfile metric it writes.
+
+* Watchdog
+
+Always firing, by design. Silence is the failure.

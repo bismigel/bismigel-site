@@ -1,0 +1,159 @@
+#+TITLE: Storage: etcd, Longhorn, disks and the media pool
+#+GROUP: Platform
+#+SUMMARY: One section per alert for the layers that hold data. The rule that separates them: redundancy costs you a rebuild, capacity costs you an outage.
+
+Data alerts come in exactly two shapes and they are not the same emergency:
+
+- **redundancy** — a replica is missing. Everything works; you are one failure from not working.
+- **capacity** — something is full or filling. This is the one that stops writes.
+
+Read the alert name for which it is before acting. Rebuilding a replica onto a full disk
+turns a warning into an outage.
+
+* LonghornVolumeDegraded
+
+A replica is missing or failed. Reads and writes still work.
+
+#+begin_src sh
+kubectl -n longhorn-system get volumes.longhorn.io <volume> \
+  -o jsonpath='{.status.robustness} {.spec.numberOfReplicas}'
+kubectl -n longhorn-system get replicas.longhorn.io | grep <volume>
+#+end_src
+
+Longhorn rebuilds automatically *if* a node has room. If the rebuild stays =Pending=,
+the cause is capacity, not the replica — see the scheduling alerts below.
+
+* LonghornVolumeFaulted
+
+Every replica is gone or unusable. This is data loss until proven otherwise: stop, check
+the backups, and do not try to "repair" the volume in place.
+
+* LonghornVolumeUnknown
+
+The volume exists but its state cannot be read: usually a stale attachment after a node
+went away.
+
+#+begin_src sh
+kubectl -n longhorn-system get volumeattachments.longhorn.io | grep <volume>
+kubectl -n longhorn-system delete volumeattachments.longhorn.io <volume>
+#+end_src
+
+Deleting the attachment makes Longhorn re-attach; the pod retries on its own.
+
+* LonghornVolumeHealthUnknown / LonghornVolumeUnknown
+
+A volume's health could not be determined — most often the engine is still starting
+after an attach. If it persists past a minute, treat it as degraded.
+
+* LonghornDiskSchedulingHeadroomLow
+
+Replicas on this disk have already claimed most of its *free space*, even though the node
+looks comfortable overall. The next rebuild larger than the shortfall cannot be placed.
+
+* LonghornDiskSchedulingOverCommitted
+
+The escalated form: nothing more can be scheduled on this disk, and rebuilds will stay
+Pending. This is the state that costs redundancy.
+
+#+begin_src sh
+kubectl -n longhorn-system get nodes.longhorn.io <node> -o json \
+  | jq '.status.diskStatus | to_entries[] | {disk:.key, avail:.value.storageAvailable, sched:.value.storageScheduled}'
+#+end_src
+
+**The fix is a dedicated disk, not fewer replicas.** On `.81` the Longhorn data disk sat
+inside `/` until 2026-11-02, when the old media partitions were repurposed: `sda` became
+`/mnt/longhorn` (227G) and every replica was evicted onto it. Dropping replicas also
+silences the alert and costs redundancy at the same time.
+
+* LonghornDiskStorageLow
+
+A disk is nearly full at the filesystem level. Distinct from over-committed: this counts
+bytes actually written, not bytes promised.
+
+* LonghornNodeStorageLow
+
+Every disk on a node is nearly full — the node-level view of the same problem.
+
+* LonghornScrapeFailing
+
+Longhorn's metrics are not being scraped, so none of the Longhorn alerts above can fire.
+This is the alert that matters most when several of them are quiet at once.
+
+* EtcdQuorumAtRisk
+
+Fewer than a majority of etcd members are healthy. The API server will go read-only, then
+stop. Nothing else matters until this is fixed: no deploys, no remediation from inside.
+
+#+begin_src sh
+kubectl -n kube-system get pods -l component=etcd -o wide
+#+end_src
+
+* EtcdNoLeader
+
+The cluster has already lost its leader. Expect the API to be unavailable or flapping;
+recover the members, then expect ArgoCD to resync everything.
+
+* EtcdMemberUnreachable
+
+One member cannot be reached. With three members this is survivable — and it is exactly
+the state in which the next failure is fatal.
+
+* EtcdHighFsyncLatency
+
+etcd's disk writes are slow, which stalls the whole control plane. In this estate the
+cause has always been the *same disk* being shared with something else: k3s state, the
+container image store, or Longhorn. A node with a dedicated disk for etcd does not have
+this alert.
+
+* EtcdDbSizeNearQuota
+
+The etcd database is approaching its quota; writes start failing at the limit. Usually a
+controller creating objects in a loop, or an object churn that is not being cleaned up.
+
+* DiskFillingUp
+
+Any filesystem over 85%. On a cluster node that filesystem carries etcd, k3s state and
+the container image store, so this is rarely "user data":
+
+#+begin_src sh
+ssh <node> 'df -h; sudo ncdu -x / 2>/dev/null | head'
+#+end_src
+
+* RootFilesystemDaysToFull
+
+The trend version: `/` is projected to fill within a week while headroom is already
+below 20%. =k3s crictl rmi --prune= and =nix-collect-garbage= usually recover 15-20G;
+etcd does not survive a full `/`.
+
+* HostMemoryHigh
+
+The node is using over 90% of its memory. On these nodes that is usually a container
+without a limit, or Longhorn's page cache.
+
+* NodeDown
+
+A node has stopped reporting. The cluster is designed to survive one — but check which
+workloads were pinned there before assuming it is fine.
+
+* MediaPoolFillingUp
+
+The media library (`/mnt/media`, now NFS from `.82`) is over 85% full. Reclaim with *arr
+cleanup; growing it means a bigger disk on `.82`, not another mergerfs branch — the branch
+design is what the 2026-11-01 outage came from.
+
+* MediaPoolCritical
+
+Over 92%: imports and downloads start failing, not just slowing.
+
+* MediaPoolDaysToFull
+
+The library will fill within a week while headroom is already under 15%. Two guards keep
+it honest: a 24h window (so a one-off move cannot fake a slope) and a headroom condition
+(so "stable at 90%" does not page).
+
+* The lesson these alerts were built from
+
+On 2026-10-24 the union read 71% while one branch was at 99%, and every create under
+`books`/`tv`/`movies` failed with ENOSPC while the pool reported 789G free. **A pool view
+is not a disk view.** That is why capacity is watched per branch and per disk, and why
+the migration to a single btrfs on `.82` happened rather than adding a fifth branch.
