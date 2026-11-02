@@ -1,0 +1,160 @@
+#+TITLE: Network devices: router, switch and access point
+#+SUMMARY: The three boxes that are not Kubernetes objects - what is measured, and what to do for each alert they raise.
+#+GROUP: Platform
+
+The estate's Kubernetes objects are watched by Prometheus. The three devices underneath
+them were not watched at all until 2026-11-01: no metrics, no probes, and no way to know
+something was wrong except by noticing that the internet felt slow.
+
+This page is the procedure for every alert those devices raise. If you arrived here from
+an alert, the alert's name is the heading you want.
+
+| device | address | what an outage costs |
+|---|---|---|
+| router (OPNsense) | `192.168.2.1` | everything: routing, NAT, DNS, DHCP |
+| switch (GS108Tv3) | `192.168.2.3` | every wired host, including all three cluster nodes |
+| access point (EAP650) | `192.168.2.2` | Wi-Fi only; the cluster is unaffected |
+
+* What is measured, and what is not
+
+Metrics come from one exporter (`netdev-exporter`, in the cluster) which probes the
+devices from outside and reads the OPNsense API. That has a hard consequence worth
+stating up front:
+
+- **The AP has no metrics endpoint.** Standalone EAP firmware exposes nothing to scrape
+  (the Omada controller path was abandoned - see the note at the bottom). We know when it
+  is *unreachable*; we cannot know how many clients it has, or how loaded its radios are.
+- **Gateway loss/delay is absent until dpinger runs.** The router's WAN gateway monitoring
+  is currently *disabled*, so `opnsense_gateway_*` series do not exist. Enable it at
+  *System → Gateways → Single → WAN_DHCP → untick "Disable Gateway Monitoring"*, then the
+  series appear within a minute. (The API refuses this change: `{"result":"failed"}`.)
+- Everything else - interface counters, memory, pf states, DHCP leases, resolver latency -
+  is real and current.
+
+* NetworkDeviceUnreachable
+
+One of the three stopped answering TCP on its management port for five minutes.
+
+**Route by the `target` label**, because the blast radius is completely different:
+
+| target | first check | likely cause |
+|---|---|---|
+| `router` | is the WAN light on the hub? is the OptiPlex powered? | power, or the NIC/hub port |
+| `switch` | does anything wired still work? | power (its LEDs are dead by design - see runbook 22), or a bad uplink |
+| `ap` | does Wi-Fi still work from a phone? | PoE, the cable, or the radio wedged |
+
+Do not reboot the router first. If the router is down you have already lost DNS, and a
+reboot loses the evidence. From another machine on the same wire:
+
+#+begin_src sh
+ping -c2 192.168.2.1 && echo "layer 3 is fine, suspect the web/ssh service"
+nc -z 192.168.2.1 443 || echo "management port closed"
+# last resort, and only with someone present:
+# keyboard + monitor on the OptiPlex
+#+end_src
+
+* WanUnreachable
+
+A TCP connect from inside the cluster to a public resolver (`1.1.1.1:443`) failed for five
+minutes. The cluster itself is up - it is the path out that is broken.
+
+Order of checks, cheapest first:
+
+1. **Is it really the WAN?** `netdev_up{target="router"}` - if the router is also down,
+   this alert is a symptom, fix that first.
+2. **Did the WAN address change?** The address is DHCP from the Bell hub and is *not*
+   stable. Look at the router's WAN interface; a new address is normal.
+3. **Is the hub in Advanced DMZ still?** If the hub was reset, the DMZ binding is lost and
+   the router gets a private address instead - the LAN still works, the internet does not.
+4. **Is it Bell?** Check from a phone on mobile data, not from the LAN.
+
+Nothing on this network needs an inbound port, so a WAN outage is an *outage*, not a
+security event. The Cloudflare Tunnel connectors will reconnect on their own.
+
+* RouterResolverDown
+
+`192.168.2.1` did not answer a real A query within three minutes.
+
+This is the highest-impact DNS failure in the estate, because **everything** resolves
+through that one resolver: the LAN, the cluster's CoreDNS, and the adblocking blocklist.
+
+#+begin_src sh
+dig @192.168.2.1 kavita.bismigel.dev +short     # expect an address
+ssh root@192.168.2.1 'configctl unbound status' # expect "running as pid ..."
+#+end_src
+
+If Unbound is running but not answering, the usual cause is a **blocklist that is too
+large or malformed** - it is regenerated at start and can fail there. Turn the blocklist
+off, restart, and re-enable afterwards:
+
+#+begin_src sh
+# in the UI: Unbound DNS -> Blocklist -> untick, Save, Apply
+ssh root@192.168.2.1 '/usr/local/etc/rc.d/unbound restart'
+#+end_src
+
+**Do not** "fix" this by handing clients a public resolver in DHCP. That silently disables
+the blocklist and makes the next failure slower and harder to see.
+
+* NetworkDeviceTlsExpiringSoon
+
+The device's HTTPS management certificate is under 21 days from expiry.
+
+As of **2026-11-01** the switch is the one to watch: its uhttpd certificate expires in
+about **18 days**. Browsers will begin refusing the UI, and recovery on that device needs
+the UI (its LEDs are dead and the reset button does nothing - runbook 22 documents the
+failsafe at `192.168.1.1`).
+
+Renew by regenerating the self-signed certificate on the device:
+
+- **switch (OpenWrt)**: `uhttpd` certificate - regenerate via
+  `openssl req -x509 -newkey rsa:2048 -nodes -days 3650 ...` and point
+  `/etc/config/uhttpd` at it, or reflash-overwrite the default from
+  `/etc/uhttpd.crt`. Do it in the same session as any other switch change.
+- **router (OPNsense)**: *System → Trust → Certificates*, create a new self-signed
+  certificate, then assign it under *System → Settings → Administration*.
+- **AP**: managed by the firmware; a factory-reset-and-restore regenerates it.
+
+* RouterInterfaceErrors
+
+`opnsense_interface_*_errors` incremented on an interface over 15 minutes.
+
+On the wired side this is nearly always physical: a cable, a port, or a duplex mismatch -
+not the ISP. The WAN interface (`em1`) reported 0 errors over 33 million packets when it
+was measured on 2026-11-01, so any movement there is new.
+
+#+begin_src sh
+ssh root@192.168.2.1 'ifconfig em0; ifconfig em1'
+# swap the cable before touching any configuration
+#+end_src
+
+* RouterPfStateTableHigh
+
+The pf state table is over 90% full. Once it fills, new connections fail while existing
+ones keep working - which looks like "half the internet is broken".
+
+Usually a client opening connections faster than they close (a broken app, a scanner on
+the LAN, a compromised device). Find the source before raising the limit:
+
+#+begin_src sh
+ssh root@192.168.2.1 'pfctl -ss | awk "{print \$4}" | cut -d: -f1 | sort | uniq -c | sort -rn | head'
+#+end_src
+
+* RouterMemoryHigh
+
+The router is using over 90% of its 16 GB. That is not a normal state for this workload -
+it means something is leaking. The usual suspect is **Unbound holding an oversized
+blocklist**; the second is a plugin with a stuck process.
+
+#+begin_src sh
+ssh root@192.168.2.1 'top -o res | head -12'
+#+end_src
+
+* Why the access point will never be fully monitored
+
+An Omada controller would expose per-client and per-radio metrics, and it was deployed,
+wired to the API, and then removed: the provider needed a controller site name that did
+not match, `wlan_group` already existed with no import path, and no uuid source was
+documented. It was more moving parts than the single field on the AP that it managed.
+
+The consequence is stated rather than hidden: **the AP is monitored as "up or down"**, and
+Wi-Fi quality is diagnosed from a client, not from a dashboard.
