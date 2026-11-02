@@ -151,6 +151,53 @@ The library will fill within a week while headroom is already under 15%. Two gua
 it honest: a 24h window (so a one-off move cannot fake a slope) and a headroom condition
 (so "stable at 90%" does not page).
 
+* BackupMountMissing
+
+A backup disk that is not mounted. The alert exists because that failure is
+*invisible*: the mirror timer is weekly, the unit only fails if it actually runs, and
+the empty mountpoint quietly becomes an ordinary directory on the root filesystem --
+so writes aimed at the backup land on `/` and the job "succeeds" having copied
+nothing.
+
+On 2026-11-02 a USB hub dropped both backup disks three times in 25 minutes (21:55,
+22:15, 22:17). `JBD2: I/O error when updating journal superblock` followed each drop,
+and the offline copy on the stick had been five days stale before anyone looked.
+
+#+begin_src sh
+ssh 192.168.2.82 'sh -s' <<'EOF'
+grep -E "backup-(sd|usb)" /proc/mounts || echo "NOT MOUNTED"
+dmesg | grep -iE "usb .* disconnect|error -71|I/O error" | tail -5
+EOF
+#+end_src
+
+*First move:* find out **why** it is not mounted before mounting it again. A dead
+device and a disk that fell off the USB bus look identical from `df`, and remounting a
+disk that is flapping only earns another aborted journal.
+
+- device gone from `/dev` -> cable/hub/power. Move it to a different controller
+  (`readlink -f /sys/block/sdX/device` shows which).
+- device present, no mount -> `e2fsck -fn /dev/sdX` (read-only) **before** any `rw`
+  mount. Three aborted journals in one evening is how an ext4 filesystem gets quiet
+  damage.
+- `error -71` / EPROTO on reconnect -> physical layer, not the filesystem.
+
+*Then* check freshness, because "mounted" is not "current":
+
+#+begin_src sh
+find /mnt/backup-sd/media -type f -printf '%TY-%Tm-%Td\n' | sort | tail -1
+find /mnt/backup-usb/r2   -type f -printf '%TY-%Tm-%Td\n' | sort | tail -1
+systemctl show -p ExecMainStatus -p ExecMainExitTimestamp --value homelab-backup-r2-copy.service
+#+end_src
+
+Two lessons, both paid for:
+
+- **`mount` on an empty mountpoint writes to the root filesystem.** My own write test
+  "passed" at 614 MB/s because the mount had silently failed and `dd` filled `/`.
+  Check `grep <path> /proc/mounts` before believing any speed number.
+- **A silent absence needs an alert, not a timer.** The weekly job is the wrong
+  detector: it runs once and exits 1 only if it runs at all. `absent()` on the
+  filesystem series catches the gap continuously.
+
 * The lesson these alerts were built from
 
 On 2026-10-24 the union read 71% while one branch was at 99%, and every create under
