@@ -47,13 +47,39 @@
   .docs-nav a:hover { color: var(--text); background: rgba(127, 127, 127, 0.08); }
   .docs-nav a.active { color: var(--text); font-weight: 600; background: rgba(127, 127, 127, 0.13); }
   .docs-nav-home { font-weight: 600; }
-  .docs-nav-group { margin-top: 1.1rem; }
+  /* Collapsible groups: <details> rather than JS, so the rail works with
+     JavaScript off and prints expanded. With 27 pages the flat list filled the rail. */
+  .docs-nav-group { margin-top: 0.9rem; }
   .docs-nav-label {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    cursor: pointer;
     font-size: 0.66rem;
     letter-spacing: 0.09em;
     text-transform: uppercase;
     color: var(--muted);
     margin: 0 0.55rem 0.25rem;
+    padding: 0.15rem 0;
+    list-style: none;
+  }
+  .docs-nav-label::-webkit-details-marker { display: none; }
+  .docs-nav-label::before {
+    content: "▸";
+    font-size: 0.7em;
+    opacity: 0.75;
+    transition: transform 0.15s ease;
+  }
+  .docs-nav-group[open] > .docs-nav-label::before { transform: rotate(90deg); }
+  .docs-nav-label:hover { color: var(--text); }
+  /* The rail is navigation: closed groups would print as bare headers, so drop it
+     from print entirely and let the page body stand on its own. */
+  @media print { .docs-nav { display: none; } }
+  .docs-nav-count {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+    opacity: 0.6;
+    letter-spacing: 0;
   }
 
   .docs-content { max-width: 720px; min-width: 0; }
