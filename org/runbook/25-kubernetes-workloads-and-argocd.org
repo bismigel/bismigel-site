@@ -1,0 +1,194 @@
+#+TITLE: Kubernetes workloads, pods and ArgoCD
+#+SUMMARY: One section per alert: what it means, the first command, and the move that makes it worse.
+#+GROUP: Platform
+
+Every alert in this family is about the cluster agreeing with what git says it should be.
+If you arrived from an alert, the alert's name is the heading you want.
+
+* The rule that applies to all of them
+
+**Check what changed in git before touching the cluster.** Almost every one of these
+alerts follows either a merge (desired state moved) or a resource that cannot become
+Ready (the cluster disagrees). =kubectl -n argocd get app <name> -o json= and
+=kubectl describe <workload>= answer which, and neither needs a guess.
+
+* ArgoCDAppOutOfSync
+
+The Application's live state differs from git. Not an outage by itself — but if it stays
+out of sync, someone's change is not applied.
+
+#+begin_src sh
+kubectl -n argocd get app <name> -o jsonpath='{.status.conditions}'
+kubectl -n argocd app diff <name>     # what actually differs
+#+end_src
+
+Usually one of: the ConfigMap changed and the pod was not restarted; a PVC size the
+provider cannot shrink; or a webhook mutating the object (the router's Kea reservations
+are a known example). **Do not** "fix" it by disabling auto-sync — that hides the drift
+and stops self-heal at the same time.
+
+* ArgoCDAppUnhealthy
+
+One of the resources inside the app is not Healthy. Find *which* before doing anything:
+
+#+begin_src sh
+kubectl -n argocd get app <name> -o json | jq -r '.status.resources[]
+  | select(.health.status and .health.status != "Healthy") | "\(.kind)/\(.name): \(.health.status) \(.health.message)"'
+#+end_src
+
+A CronJob whose last run failed makes its whole app Degraded — which then makes
+=homelab-smoke= fail with a message two layers away from the cause. That happened on
+2026-11-02 and cost an hour.
+
+* ArgoCDComponentDown
+
+One of ArgoCD's own deployments has no ready replica. Fix this first — nothing else
+reconciles while it is down. Redis is the usual culprit: after bouncing all three
+=redis-ha= pods, the haproxy can latch onto a **read-only replica**, every cache write
+fails, and every git-backed app goes =Unknown= with =failed to list refs: EOF=.
+
+#+begin_src sh
+kubectl -n argocd get pods
+kubectl -n argocd get pods -l app=redis-ha -o wide   # who is master
+#+end_src
+
+If the repo-server logs =EOF=, restart the **haproxy** pods, not redis.
+
+* ArgoCDRedisHAPodNotReady
+
+A Redis HA member is not ready. Three members are required for the cluster; two still
+serve reads but failover is gone.
+
+* ArgoCDRedisHAEndpointsLow
+
+Fewer than three Redis endpoints. The cluster lost quorum or a member is restarting.
+Expect cache misses (every ArgoCD operation gets slower) but not data loss — the cache
+is regenerable.
+
+* ArgoCDRedisHARestartingOften
+
+A member is crash-looping. Check its logs for OOM before anything else; the default
+memory limit is small and ArgoCD's cache grows with the number of applications.
+
+* KubePodCrashLooping
+
+The container starts and exits. Read the *previous* container's log — the current one
+may be too young to say anything:
+
+#+begin_src sh
+kubectl -n <ns> logs <pod> --previous --tail=50
+kubectl -n <ns> describe pod <pod> | grep -A3 "Last State"
+#+end_src
+
+=OOMKilled= (exit 137) at a small memory limit is the most common cause here, and it
+looks like a service failure from the outside — SABnzbd at 1Gi was reported by both
+*arrs as "download client unavailable".
+
+* PodContainerConfigError
+
+The pod cannot start because something it needs is missing: a Secret, a ConfigMap, or a
+securityContext the image cannot satisfy.
+
+#+begin_src sh
+kubectl -n <ns> describe pod <pod> | grep -E "Warning|Failed" | tail -5
+#+end_src
+
+Two seen in this estate: an ExternalSecret that had not synced yet, and
+=runAsNonRoot: true= against an image whose user is a *name* (=nonroot=), which kubelet
+cannot verify — pin the numeric UID instead of dropping the guard.
+
+* PodStuckPending
+
+Scheduled but not running: no node fits, or a volume cannot attach. The event says which.
+
+#+begin_src sh
+kubectl -n <ns> describe pod <pod> | grep -A5 Events
+#+end_src
+
+Longhorn volumes "waiting for detach" are usually a pod on another node still holding
+the volume; a stale SCSI device (see the storage page) is the other cause.
+
+* PodRestartingOften
+
+Restarting without being in a crash loop yet: a liveness probe that is too strict, a
+dependency flapping, or a memory limit just under what the app needs. Compare restart
+timestamps with deploys — a restart per deploy is expected, a restart every few minutes
+is not.
+
+* DeploymentReplicasUnavailable
+
+Fewer ready replicas than desired for 15 minutes. The pod-level alert says why; this one
+says it has lasted long enough to matter.
+
+* DeploymentRolloutStalled
+
+A rollout has not progressed on its own. Almost always a readiness probe that never
+passes, or an image that cannot be pulled.
+
+#+begin_src sh
+kubectl -n <ns> rollout status deploy/<name>
+kubectl -n <ns> get rs -l app=<name> -o wide
+#+end_src
+
+* KubeDeploymentReplicasMismatch
+
+The arithmetic behind =DeploymentReplicasUnavailable=. Both exist because they read
+differently in a dashboard; the inhibit rule stops the pair from paging twice.
+
+* CronJobFailed
+
+A scheduled run failed. Read the Job's pod log; the message there is the cause and this
+alert is only the pointer.
+
+#+begin_src sh
+kubectl -n <ns> get jobs --sort-by=.metadata.creationTimestamp | tail -3
+kubectl -n <ns> logs job/<name> --tail=40
+#+end_src
+
+A CronJob whose last run failed also marks its ArgoCD app Degraded — that is how a
+failing mirror check turns into a "cluster unhealthy" page.
+
+* JobPodsFailing
+
+An earlier signal than =CronJobFailed=: containers in a Job's pods are erroring but the
+Job has not given up yet. If both fire, the CronJob one names the owner to act on.
+
+* ContainerHighCPU
+
+A container is using most of a core for a sustained period. Usually a busy *arr
+refreshing metadata or a transcode; look at whether it is expected work or a loop.
+
+* ContainerCPUThrottled
+
+The container is hitting its CPU limit. Throttling shows up as latency, not errors — so
+this is the alert that explains a slow service whose pods look healthy.
+
+* ContainerMemoryNearLimit
+
+Memory is close to the limit. Raise the limit deliberately, or find the leak; what you
+must not do is leave it, because the next step after this alert is =OOMKilled=.
+
+* TargetDown
+
+Prometheus cannot scrape something. Which target matters more than the fact:
+
+#+begin_src sh
+# in Prometheus: /targets, or
+kubectl -n monitoring get pods | grep prometheus
+#+end_src
+
+A scrape that is blocked by a NetworkPolicy looks identical to a broken exporter.
+`status-api` was serving =/metrics= the whole time while its target sat =down: context
+deadline exceeded=, because the =apps= namespace did not admit the monitoring namespace.
+
+* CAdvisorScrapeFailing
+
+The kubelet's cAdvisor endpoint is not being scraped, so container metrics are missing.
+Everything built on container CPU/memory is blind until this is fixed — including the
+alerts that would tell you why.
+
+* Watchdog
+
+Always firing, by design. Its *absence* is the signal: it is the only alert that has to
+travel the whole path (rule evaluation → Prometheus → Alertmanager → Telegram). Silence
+means that path is broken, so do not "fix" it.
