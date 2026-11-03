@@ -2,12 +2,39 @@
 #+SUMMARY: What is backed up, how to prove a restore, and the boot order that saves a reboot.
 #+GROUP: Recovery
 
-- **Daily:** host keys, kubeconfig, and app data are backed up to R2
-  (`homelab-backup.service` on the hosts, `backup-apps` for the apps).
-- **Restore drills:** a backup that has never been restored is a hypothesis.
+- *Daily:* host keys, kubeconfig, and app data are backed up to R2
+  (=homelab-backup.service= on the hosts, =backup-apps= for the apps).
+- *Restore drills:* a backup that has never been restored is a hypothesis.
   Run the documented restore check and record the result.
-- **NFS boot order:** bring `platform` up before `media`. If `media` boots first
+- *NFS boot order:* bring =platform= up before =media=. If =media= boots first
   the remote mounts fail and the media pool does not come up.
-- **Full rebuild:** `bakuran-infra/docs/REBUILD.md` plus the R2 credentials
+- *Full rebuild:* =bakuran-infra/docs/REBUILD.md= plus the R2 credentials
   backup. Keep the offline copy of the age key somewhere it can actually be
   reached.
+
+* The restore log
+
+A backup that has been restored once is a fact; one that has not is a hypothesis. This
+is the record of what was actually restored, how long it took, and what behaved in a way
+nobody expected. Add an entry the same day -- the surprises are the part that decays.
+
+| date | restored | from | elapsed | what surprised us |
+|------+----------+------+---------+-------------------|
+| 2026-11-02 | sabnzbd, kavita, audiobookshelf (3 apps, 251 files) | R2 \=appdata-sitaw-amd-20261101T010049Z\= | TODO | qBittorrent came back with *no WebUI password* and a stale \=config.xml\= from another app: the *arrs reported "download client unavailable", not "auth failed" |
+| 2026-11-02 | Jellyfin | n/a -- no restore, a restart | minutes | Jellyfin was \=Ready\= and serving an *empty \=/media\=*: \=default\= namespace was never restarted at the media cutover, so it held a stale mergerfs bind |
+| 2026-11-01/02 | most of the stack | R2 + local manifests | TODO | after the router/switch replacement everything was in error; the restore order mattered (platform before media) or the NFS mounts came up empty |
+| 2026-11-02 | books (525), audiobooks (7) | md5-of-sorted-md5sum verified copy | TODO | checksum equality was the only reason to believe the 367 GB migration was honest |
+
+What these entries establish, which the rest of this page only asserts:
+
+- *R2 is readable* with the age key, on a machine that is not the cluster.
+- *The tarballs restore into Longhorn PVCs* without a manual volume rebuild, once the
+  PVC exists (creating the PVC is the part that needs the break-glass annotation).
+- *A restored app can look healthy and be broken*: both failures above returned HTTP
+  200. Verify function -- a login, a library count -- not liveness.
+- *Boot order is real*: \=platform\= before \=media\=, or the remote mounts fail and the
+  pool does not come up.
+
+*Still to record:* elapsed time per entry (the only path to an RTO number) and the
+\=homelab-backup-r2-copy\= offline copy being restored *from* at least once -- so far every
+restore has read R2 directly, never the local copy.
