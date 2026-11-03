@@ -44,4 +44,8 @@ spec:
             periodSeconds: 10
           resources:
             requests: { cpu: "20m", memory: "32Mi" }
-            limits: { cpu: "200m", memory: "128Mi" }
+            # 200m was tight enough that a static site throttled ~34% of CFS periods
+            # while actually using ~1m: every request burst hit the ceiling and got
+            # clipped (ContainerCPUThrottled, 2026-11-03). Requests stay at 20m, so this
+            # costs nothing in scheduling -- the limit only needs to be above the burst.
+            limits: { cpu: "500m", memory: "128Mi" }
