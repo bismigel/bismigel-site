@@ -15,7 +15,7 @@ path existed all along — it needed a state backend, not a new tool.
 
   | Thing | Where |
   |-------+-------|
-  | OPNsense API key | =~/router-stage/opnsense-api-key.txt= (a =key== / =secret== pair) |
+  | OPNsense API key | Bitwarden Secrets Manager, project =homelab-kube=: =opnsense-api-key= and =opnsense-api-secret=. Read them by *secret id* — the ids are in =bakuran-infra/opentofu/opnsense/README.md= |
   | R2 credentials for the S3 state backend | the *same* key the backup job uses, in =/root/.config/homelab-backup.env= on the platform host |
   | OpenTofu | =nix run nixpkgs#opentofu -- …= |
 
@@ -34,8 +34,10 @@ path existed all along — it needed a state backend, not a new tool.
   export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
   export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
   export AWS_DEFAULT_REGION=auto
-  export TF_VAR_opnsense_api_key="$(grep -oP '(?<=key=)\S+' ~/router-stage/opnsense-api-key.txt)"
-  export TF_VAR_opnsense_api_secret="$(grep -oP '(?<=secret=)\S+' ~/router-stage/opnsense-api-key.txt)"
+  # pre-2026-11-03 this read a file that held 'key=<80 chars>' / 'secret=<80 chars>'
+  # lines and stripped the prefix with grep -oP '(?<=key=)'. The file is gone; the pair
+  # now comes from the vault (see "The API itself"), which avoids that parsing entirely.
+  . ~/projects/bakuran-infra/opentofu/opnsense/env.sh
   export TF_VAR_opnsense_uri="https://192.168.2.1"
   #+end_src
 
@@ -129,6 +131,51 @@ path existed all along — it needed a state backend, not a new tool.
   **Take that export before any DHCP change**, without exception. It contains the
   WebGUI TLS key and the root password hash, so it belongs in =~/router-stage/= and
   never in a repository — the repo's =.gitignore= refuses =*.xml= for exactly this.
+
+* The API itself
+
+  Everything the UI does is an HTTP call, and it is the only scriptable path.
+
+  | | |
+  |---+---|
+  | base | =https://192.168.2.1/api/<module>/<controller>/<action>= |
+  | auth | HTTP Basic, =key:secret= — from =System -> Access -> Users -> root -> API keys= |
+  | TLS | self-signed, so =curl -k= |
+  | liveness check | =GET /api/core/firmware/status= expecting =200= |
+
+  #+begin_src sh
+  . ~/projects/bakuran-infra/opentofu/opnsense/env.sh   # loads the pair from the vault
+  curl -sk -u "$TF_VAR_opnsense_api_key:$TF_VAR_opnsense_api_secret" \
+    https://192.168.2.1/api/core/firmware/status
+  #+end_src
+
+  *Five traps, all hit on 2026-11-03:*
+
+  - *The exported key file has =key== / =secret== prefixes.* Taking the whole line gives
+    an 84-character "key" and a 401 that looks like a revoked credential. The stored keys
+    are 80 characters. Strip the prefix — or better, read the pair from the vault and stop
+    parsing files.
+  - *The UI login is TOTP-protected.* =root= has =otp_seed= set, so there is no headless
+    username/password route, and a session POST additionally needs =X-CSRFToken=. API keys
+    are the only automation path; do not go looking for a login flow.
+  - *A key is shown once.* Close the dialog without copying the secret and the key is
+    unusable forever — OPNsense keeps only a hash.
+  - *Nothing on the CLI mints a key.* With zero keys, use the UI, or call the same model
+    from a root shell:
+    #+begin_src php
+    $model = new \OPNsense\Auth\User();
+    $model->getUserByName('root')->apikeys->add();   // returns key + secret
+    $model->serializeToConfig(false, true);
+    \OPNsense\Core\Config::getInstance()->save();
+    #+end_src
+  - *There are two firewall config paths.* =$config['filter']['rule']= holds the legacy LAN
+    defaults; the CLIENTS rules live in
+    =$config['OPNsense']['Firewall']['Filter']['rules']['rule']=. Reading the first reports
+    "0 rules" and looks exactly like a missing policy.
+
+  Deleting a key: =POST /api/auth/user/delApiKey/{base64(key)}= — the id is the key itself,
+  base64-encoded. *Check that a key is genuinely dead before deleting it:* count the keys
+  on the box first, and re-test with the prefix stripped.
 
 * What is still clicked
 
