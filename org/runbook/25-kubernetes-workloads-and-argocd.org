@@ -27,6 +27,32 @@ provider cannot shrink; or a webhook mutating the object (the router's Kea reser
 are a known example). **Do not** "fix" it by disabling auto-sync — that hides the drift
 and stops self-heal at the same time.
 
+* ArgoCDMetricsMissing
+
+No =argocd_app_info= series for fifteen minutes. This is the alert for *ArgoCD itself*, and
+it exists because the failure it describes is invisible by construction: if the application
+controller stops exporting metrics, every ArgoCD rule in this page - =ArgoCDAppUnhealthy=,
+=ArgoCDAppOutOfSync= - stops firing too. A dashboard that is green because nothing is being
+measured looks exactly like a healthy cluster.
+
+=TargetDown= covers an exporter that has gone away. This one covers the metrics vanishing
+for any other reason (a controller that is up but wedged, a ServiceMonitor edit, a port
+change) and says plainly what is now unmonitored.
+
+#+begin_src sh
+kubectl -n argocd get pods
+kubectl -n argocd logs deploy/argocd-application-controller --tail=30
+kubectl -n monitoring get cm prometheus-config -o jsonpath='{.data.prometheus\.yml}' | grep -A4 "job_name: 'argocd'"
+#+end_src
+
+*First move:* confirm the scrape, not the apps. The question is not "is an app broken" - it
+is "is ArgoCD still telling anyone". Recover the metric first; only then trust any ArgoCD
+state you read.
+
+*Why absence rather than a threshold:* there is no value to compare when the series is gone,
+which is exactly why this class of failure goes unnoticed. Same shape as
+=BackupMountMissing= and =StatusApiNotScraped= - a silent absence needs an absence check.
+
 * ArgoCDAppUnhealthy
 
 One of the resources inside the app is not Healthy. Find *which* before doing anything:
