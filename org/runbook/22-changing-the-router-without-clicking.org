@@ -199,6 +199,11 @@ path existed all along — it needed a state backend, not a new tool.
   | gateway monitor IP =1.1.1.1= | the ISP gateway drops ICMP, so monitoring it reports a permanent outage |
   | Unbound =dnssec= | off means silently unvalidated |
   | DNSBL entry =oisd0= (=nxdomain=, =cache_ttl= 72000) | ad-blocking as data, not a flag |
+  | WebGUI =ssl-hsts= | HSTS header, verified from the response not the config |
+  | =disablehttpredirect= **absent** | presence of the key *disables* the redirect |
+  | =system/ssh/passwordauth= **absent** | presence of the key *enables* password login |
+  | dnsmasq =enable= 0 | Unbound serves DNS, Kea serves DHCP; dnsmasq is a third daemon doing neither |
+  | Unbound =regdhcp= / =regdhcpstatic= | DHCP and static names become resolvable as =<name>.internal= |
 
   *Exit codes:* =0= matches, =2= drift in audit mode, =1= something was corrected or a
   step failed. =--check= does *not* work on this playbook (the =template= task's registered
@@ -214,6 +219,19 @@ path existed all along — it needed a state backend, not a new tool.
     back is what exposed both missing includes.
   - *=dnsbl.blocklist= is the entry, not a list of entries.* Reading it as a list finds no
     =type= key and reports the blocklist missing on a router that has one.
+
+  *Two settings are presence-based, and that inverts the usual rule:*
+
+  =webgui.inc= tests =!isset($config['system']['webgui']['disablehttpredirect'])= - the HTTP to
+  HTTPS redirect is on **only while that key does not exist**. Writing ='0'= into it disables
+  the redirect and lighttpd stops listening on =:80= entirely. The same is true of
+  =system/ssh/passwordauth=: the key existing means password login is *enabled*, so turning
+  it off means removing the key, not setting it to ='0'=.
+
+  Both were discovered the same way, on 2026-11-03, and both are the reason this page says to
+  **verify the effect, not the stored value**: the first version of the admin block wrote
+  =hsts= (a key that does not exist - the real one is =ssl-hsts=) and =redirect_http=
+  (also invented). The config looked right, the audit passed, and nothing changed.
 
   *What is still manual:* taking a fresh config export after hand-made changes. See
   =network/exports/README.md= - the exports are SOPS-encrypted in the repo precisely
