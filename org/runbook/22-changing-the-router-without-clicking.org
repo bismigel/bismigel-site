@@ -1,5 +1,5 @@
 #+TITLE: Change the router without clicking
-#+SUMMARY: The OpenTofu loop for OPNsense — backend credentials, adoption by import, two provider traps that make a successful apply a lie, and how to roll back.
+#+SUMMARY: Two loops for OPNsense: OpenTofu for objects, the Ansible baseline for settings with no provider resource — credentials, adoption by import, the traps that make a green apply a lie, and how to roll back.
 #+GROUP: Operations
 
 On 2026-11-01 the DHCP DNS servers had to change: the nodes were resolving through
@@ -176,6 +176,48 @@ path existed all along — it needed a state backend, not a new tool.
   Deleting a key: =POST /api/auth/user/delApiKey/{base64(key)}= — the id is the key itself,
   base64-encoded. *Check that a key is genuinely dead before deleting it:* count the keys
   on the box first, and re-test with the prefix stripped.
+
+* The baseline: what the provider cannot reach
+
+  OpenTofu covers VLAN 20, the Kea subnet/pool/DNS, the DHCP reservations and the four
+  CLIENTS firewall rules. Everything else on the router is either in the Ansible baseline
+  or genuinely manual - and =tofu plan= saying "no changes" says nothing about it.
+
+  #+begin_src sh
+  cd bakuran-infra/network/ansible
+  ansible-playbook -i inventory.yml playbooks/opnsense.yml -e audit=1   # change nothing
+  ansible-playbook -i inventory.yml playbooks/opnsense.yml              # correct drift
+  #+end_src
+
+  Read the =msg= array: each line is a separate assertion.
+
+  | assertion | why it exists |
+  |-----------+---------------|
+  | SSH keys, password auth off, WebGUI timeouts | access policy with no provider resource |
+  | Kea serving interfaces | the interface list is a plugin setting, not a Kea subnet |
+  | =/etc/cron.d/dnsbl= and =/etc/cron.d/homelab-heartbeat= | *not* in a config backup - =/conf/config.xml= is, =/etc= is not - and they cannot be OPNsense cron jobs either, because that plugin only accepts registered configd actions |
+  | gateway monitor IP =1.1.1.1= | the ISP gateway drops ICMP, so monitoring it reports a permanent outage |
+  | Unbound =dnssec= | off means silently unvalidated |
+  | DNSBL entry =oisd0= (=nxdomain=, =cache_ttl= 72000) | ad-blocking as data, not a flag |
+
+  *Exit codes:* =0= matches, =2= drift in audit mode, =1= something was corrected or a
+  step failed. =--check= does *not* work on this playbook (the =template= task's registered
+  result has no =.dest= in check mode), so =-e audit=1= is the dry run.
+
+  *Three traps worth knowing, all hit on 2026-11-03:*
+
+  - *=write_config()= needs =util.inc=*, and =dpinger_configure_do()= needs
+    =interfaces.inc= and =system.inc=. A PHP block that only requires =config.inc= passes
+    in audit mode and dies with a fatal error the first time it actually has to change
+    something - which is the moment it matters.
+  - *Test the write path, not just the check.* Setting the monitor IP to =8.8.8.8= and
+    back is what exposed both missing includes.
+  - *=dnsbl.blocklist= is the entry, not a list of entries.* Reading it as a list finds no
+    =type= key and reports the blocklist missing on a router that has one.
+
+  *What is still manual:* taking a fresh config export after hand-made changes. See
+  =network/exports/README.md= - the exports are SOPS-encrypted in the repo precisely
+  because they cover what neither OpenTofu nor the baseline reach.
 
 * What is still clicked
 
