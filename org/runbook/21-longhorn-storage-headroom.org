@@ -32,11 +32,19 @@ What it said on 2026-10-30, after the image and store cleanup in step 1:
 
 | Node              | Disk path                 | Promised | Free on fs | Ratio |
 |-------------------+---------------------------+----------+------------+-------|
-| sitaw-amd         | =/var/lib/longhorn= (root fs) | 45 G | 53 G   | *0.84* |
-| patola-thinkcentre | =/var/lib/longhorn= (root fs) | 55 G | 68 G  | *0.81* |
-| patola-thinkcentre | =/mnt/data= (dedicated)   | 34 G     | 121 G      | 0.28  |
-| sitaw-amd         | =/mnt/media-nvme= (dedicated) | 39 G  | 319 G      | 0.12  |
-| calamansi-intel   | =/var/lib/longhorn= (root fs) | 5 G   | 58 G       | 0.09  |
+| sitaw-amd         | =/var/lib/longhorn/= (root fs) | 34 G | 53 G   | *0.64* |
+| sitaw-amd         | =/mnt/media-nvme= (dedicated)  | 75 G | 359 G  | 0.21  |
+| patola-thinkcentre | =/var/lib/longhorn/= (root fs)| 12 G | 73 G   | *0.16* |
+| patola-thinkcentre | =/mnt/data= (dedicated)       | 98 G | 133 G  | *0.74* |
+| calamansi-intel   | =/var/lib/longhorn/= (root fs) | 0 G  | 50 G   | 0.00  |
+| calamansi-intel   | =/mnt/longhorn= (dedicated)    | 110 G| 242 G  | 0.45  |
+
+Measured 2026-11-03. The =/mnt/longhorn= row on =calamansi-intel= is new: that disk was
+added during the media migration on 2026-11-02, and its arrival is why the weekly
+=homelab-docs-verify= check had been reporting drift until the inventory here caught up.
+Its root filesystem now schedules 0 G -- the eviction worked. =.80= and =.82= still
+schedule 12 G and 34 G on their root filesystems; whether to disable those disks is an
+open question, not something this table decides.
 
 The two 0.8 rows are the problem: /node/-level capacity looked comfortable (767 G
 raw) while 105 G of the 178 G scheduled sat on operating-system disks.

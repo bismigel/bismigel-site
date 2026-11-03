@@ -12,7 +12,39 @@
   backup. Keep the offline copy of the age key somewhere it can actually be
   reached.
 
-* The restore log
+* The cold key
+
+The R2 backups are encrypted to one age identity. It exists in three places, on purpose:
+
+| where | why |
+|-------+-----|
+| Bitwarden (project =homelab-kube=) | the everyday copy |
+| =/root/.config/homelab-backup.agekey= on =sitaw-amd= | the host has to encrypt, so it must be there |
+| **a USB labelled =COLD-KEY=, kept away from the rack** | *neither of the above survives Bitwarden being unreachable or the cluster being gone* |
+
+=COLD-KEY= holds =homelab-backup.agekey= (mode 400) and a =README.txt= with these same
+instructions. Its public half is:
+
+#+begin_src
+age15hzlt4rxx0lxd7v8sxlvwfmc9x0jmx8e0l5zvemszgp966ygavkshuw4fj
+#+end_src
+
+*Prove a copy is the right key* -- this prints the public recipient and never the secret:
+
+#+begin_src sh
+age-keygen -y homelab-backup.agekey
+#+end_src
+
+If that string does not match the one above, the cold copy no longer decrypts anything.
+=homelab-docs-verify= runs this comparison weekly against the live key on =sitaw-amd= and
+raises =DocsDrift= when they diverge -- so a regenerated key cannot silently orphan the
+offline copy.
+
+*Still to do:* one copy should live **off-site** (a relative, a safe). The backups are
+already off-site in R2; the key is not, so a house fire currently costs the ability to
+read them. Paper is the right medium: print the identity, seal it, hand it over.
+
+* Restore one thing
 
 A backup that has been restored once is a fact; one that has not is a hypothesis. This
 is the record of what was actually restored, how long it took, and what behaved in a way
