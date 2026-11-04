@@ -143,6 +143,52 @@ The live state still belongs to =bakuran.wireguard=
 (=modules/wireguard-reconcile.nix=): endpoint =176.113.74.82=, peer =nLx6…=,
 =allowedIPs 0.0.0.0/0=. It enforces that in place with =wg set=, every 60 s.
 
+* The server itself is dead (2026-11-03)
+
+Sometimes the peer stops answering forever. On 2026-11-03 =176.113.74.82= went
+silent: initiations left =.81=, crossed the router, and nothing came back. The
+tunnel stayed dead for hours because the only move I knew was "rotate the key",
+and the key was not the problem.
+
+*How to tell a dead server from a dead key* — try a different key against the
+*same* endpoint. If both are silent, the server is gone:
+
+#+begin_src sh
+wg-switch list                      # configs available; * marks the active one
+wg-switch wg-CA-164                 # same endpoint 176.113.74.82 -> FAILED, reverts
+wg-switch wg-CA-1228                # different server -> ok: handshake 1s ago
+#+end_src
+
+=wg-switch= is a *runtime* action and nothing more. The reconciler enforces the
+closure's values within 60 s and reverts it — that is correct, and it is exactly
+what happened: the switch handshook, then the dead endpoint was back a minute
+later. Use it to *identify* a working server.
+
+*Then make it declarative.* Three lines change, in one PR:
+
+1. =bakuran.wireguard.endpoint= and =peerPublicKey= in
+   =hosts/calamansi-intel/default.nix=,
+2. =wg_proton_private_key= in SOPS (the key belonging to that config),
+3. =NETWORK.md= 's live-configuration table.
+
+Two traps worth naming:
+
+- The endpoint used to live *inside* the unit definition, so this change restarted
+  the link — the operation that has stranded the node seven times (page 12). Since
+  2026-11-03 the peer and endpoint belong to the reconciler, so
+   =scripts/preflight-wg.sh= *passes* and a plain =switch= is safe. It now fails
+  only when the unit definition itself changes.
+- If it does fail, deploy with =--boot= and reboot rather than restarting the
+  link: *the boot path is the tested one*, a restart is not.
+
+#+begin_src sh
+nix run github:serokell/deploy-rs -- .#calamansi-intel --skip-checks --boot
+ssh root@192.168.2.81 systemctl reboot
+#+end_src
+
+After a fresh boot the interface has *no peer* until the reconciler's first run
+(90 s). If you are impatient: =systemctl start wireguard-reconcile.service=.
+
 * Rolling back
 
 **Do not roll back with =wg-quick up=.** It re-adds the rules without =pref=,
@@ -180,7 +226,10 @@ the box.
 * Do not
 
 - Do not =systemctl restart wg-quick-proton0= on a node you cannot reach.
-- Do not rotate the endpoint to "fix" egress; the endpoint was never the problem.
+- Do not rotate the endpoint to "fix" egress *unless a different key against the
+  same server is also silent* — then the server is dead and rotating is the fix
+  (2026-11-03: =wg-switch wg-CA-164= on 176.113.74.82 failed, =wg-CA-1228= on
+  84.20.16.29 handshook in 1 s).
 - Do not re-add =::/0= to =allowedIPs= (the boot seed in the host file keeps it
   only so its unit stays byte-identical; the reconciler enforces IPv4-only).
 - Do not report "no data path" from a check that demands exactly HTTP 200.
