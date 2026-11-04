@@ -137,6 +137,57 @@ The sweep that looks for stray CNI addresses is no longer reporting. **This is t
 dangerous state**, not the one above: no signal is not the same as no problem. Check the
 timer on the host and the textfile metric it writes.
 
+* PrometheusNotEvaluating
+
+Posted *by =prometheus-watchdog=, not by Prometheus* — Prometheus is the thing that is
+supposed to be dead here, so it cannot be the one reporting it.
+
+Every two minutes that CronJob asks Prometheus for =count(ALERTS{alertname="Watchdog"})=.
+Watchdog fires by construction, so a count of 1 is the cheapest proof that rules are being
+evaluated right now. Anything else — an error, an empty vector, a timeout — means *no rule
+is firing*, and the job sends a Telegram message directly, bypassing Prometheus and
+Alertmanager entirely.
+
+*Why this exists.* Prometheus' TSDB is on =local-path= on purpose (page 26: it must not live
+on the storage it reports on). The documented cost was "lose the history". The unstated cost
+was bigger: the volume is pinned to whichever node the pod first ran on, so if that node dies
+the pod cannot start anywhere, and evaluation stops *completely*. Every alert goes quiet,
+including =NodeDown= — and quiet is indistinguishable from healthy.
+
+*What to do.* Treat it as "alerting is down", not "an app is down":
+
+#+begin_src sh
+kubectl -n monitoring get pods -o wide | grep -E "prometheus|alertmanager"
+kubectl -n monitoring get pvc prometheus-data        # Pending claim = the node is gone
+kubectl -n monitoring logs job -l app=prometheus-watchdog --tail=20
+#+end_src
+
+If =prometheus-data= is bound to a node that is down, the pod will stay =Pending= until that
+node returns; see page 26 for what that volume is allowed to lose.
+
+*Not covered:* the whole cluster being unreachable (the job runs inside it) and the job itself
+breaking. The second half is what =PrometheusWatchdogStale= is for.
+
+* PrometheusWatchdogStale
+
+The dead-man switch itself has not succeeded in 15+ minutes, so a silent Prometheus would now
+go unreported. The witness needs a witness, and this is the cheap half of one: while
+Prometheus is alive, it can see that the CronJob stopped running.
+
+#+begin_src sh
+kubectl -n monitoring get cronjob prometheus-watchdog
+kubectl -n monitoring logs -l app=prometheus-watchdog --tail=50
+kubectl -n monitoring get events --sort-by=.lastTimestamp | grep -i watchdog | tail -5
+#+end_src
+
+Common causes: the image cannot be pulled on its node, the secret
+=alertmanager-telegram= is gone, or a =NetworkPolicy= was added — a blocked egress looks
+exactly like a broken job.
+
+*What is still not covered:* if Prometheus *and* the CronJob are both broken, or the cluster is
+gone entirely, nothing here fires. Closing that needs a witness outside the cluster, which is
+a separate decision.
+
 * Watchdog
 
 Always firing, by design. Silence is the failure.
