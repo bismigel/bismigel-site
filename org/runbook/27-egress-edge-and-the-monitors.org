@@ -162,8 +162,20 @@ kubectl -n monitoring get pvc prometheus-data        # Pending claim = the node 
 kubectl -n monitoring logs job -l app=prometheus-watchdog --tail=20
 #+end_src
 
-If =prometheus-data= is bound to a node that is down, the pod will stay =Pending= until that
-node returns; see page 26 for what that volume is allowed to lose.
+Since 2026-11-04 there are *two* Prometheus instances and this should now be rare: the primary
+( =prometheus= ) serves Grafana, and =prometheus-alerting= exists only so rules keep being
+evaluated. The job accepts either one, and it only alarms when *neither* reports Watchdog.
+
+So read this alert as "no instance is evaluating", not "a pod is unhappy":
+
+- *One* instance down: =PrometheusWatchdog= stays quiet (correct), and Grafana graphs are blank
+  if it was the primary — history is node-pinned by design (page 26). Nothing pages you for a
+  blank graph, which is the intended trade.
+- *Both* down, or the CronJob cannot reach either: this alert fires and Telegram gets a message
+  that did not travel through Prometheus or Alertmanager.
+
+If =prometheus-data= is bound to a node that is down, that pod stays =Pending= until the node
+returns; see page 26 for what that volume is allowed to lose.
 
 *Not covered:* the whole cluster being unreachable (the job runs inside it) and the job itself
 breaking. The second half is what =PrometheusWatchdogStale= is for.
