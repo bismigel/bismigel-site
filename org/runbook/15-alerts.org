@@ -145,3 +145,34 @@ and, if the cause is deterministic, recreates it.
 *Do not treat a pushed alert's "Resolved" as recovery.* It expires ~5 minutes
 after the last failure report. If =BackupFailed= resolves but no backup ran, the
 backup still did not run.
+
+* The witness outside the cluster (RouterHeartbeatStale)
+
+Every other check in this estate runs *inside* the cluster. If the cluster dies, so do
+they, and their silence is indistinguishable from calm. The one exception is
+=homelab-heartbeat.sh= on the OPNsense router: it polls the API VIP and the public status
+page every five minutes and pages by Telegram when either stops answering.
+
+That leaves a hole this alert closes: *who notices when the router's script stops?* Its only
+proof of life used to be a Monday message a human had to notice missing. Now the script also
+POSTs to =https://status.bismigel.dev/api/heartbeat= each run, the cluster records the time,
+and this alert fires when that timestamp is more than an hour old — twelve missed beats.
+
+*What to do*
+
+1. =ssh root@192.168.2.1= and =tail -20 /var/log/homelab-heartbeat.log=. Entries every five
+   minutes with =beat=204= mean it is working and the *cluster* is failing to record them.
+2. No entries at all: check =ls -l /usr/local/etc/homelab-heartbeat.sh= and the cron line in
+   =/etc/cron.d/homelab-heartbeat=. Both are hand-placed — see the note below — so they can
+   disappear across a firmware update.
+3. Entries with =beat=000=: the POST is failing while the checks pass, which points at the
+   tunnel or at status-api's =/api/heartbeat=, not at the router.
+4. One or two missed beats resolve themselves. Twelve do not.
+
+*Why it is hand-placed.* The OpenTofu OPNsense provider cannot express this: =opnsense_cron_job=
+requires a registered OPNsense *command key*, and there is no resource for a script file or an
+=actions.d= key. Declaring it needs the Ansible path. Until then the file survives only because
+nobody wiped it, which is exactly why this alert exists rather than a note in a README.
+
+*Do not silence this quietly.* Silencing it is indistinguishable from having no out-of-cluster
+witness at all, and the next real cluster loss will be silent too.
