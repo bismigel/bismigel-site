@@ -3,6 +3,7 @@ kind: Kustomization
 namespace: apps
 resources:
   - deployment.yaml
+  - pdb.yaml
   - service.yaml
   - ingress.yaml
   - ingress-redirect.yaml
