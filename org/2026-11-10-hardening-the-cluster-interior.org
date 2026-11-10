@@ -1,0 +1,172 @@
+#+TITLE: Hardening the inside of a k3s homelab: etcd encryption, API audit logs and vnstat
+#+DATE: 2026-11-10T21:00:00-05:00
+#+FILETAGS: homelab:kubernetes:security:opnsense:monitoring:ops
+#+DESCRIPTION: A review of the cluster interior found plaintext secrets in etcd, no API audit trail, twelve public hostnames and a router key that had been dead for five days. What I changed, and the four ways the change itself broke.
+
+The outside of this lab was in decent shape. No inbound ports on the WAN. Cloudflare
+Access in front of every administrative page. SSH with keys only. Secrets in SOPS or
+Bitwarden, never in git.
+
+The inside was a different story. I reviewed it properly for the first time and found
+that the things I had never written down were the things that were wrong.
+
+This is what the review measured, what I changed, and what broke while I changed it. The
+mistakes are in order, because they are the part I would want to read.
+
+* What the review found
+
+Six findings, all cheap to check once I looked:
+
+| finding                               | how it was measured                                                                 |
+|---------------------------------------+-------------------------------------------------------------------------------------+
+| Secrets readable in etcd              | =--secrets-encryption= absent from every =k3s.service=                              |
+| No API audit trail                    | no =--audit-policy-file= on any server                                              |
+| 12 hostnames public, 16 behind Access | =ops/public-surface= probing every Ingress hostname                                 |
+| Five public hostnames are app UIs     | =jellyfin=, =kavita=, =audiobookshelf=, =immich=, =karakeep=                        |
+| A router API key dead for five days   | =monitoring/opnsense-api= returned ={"status":401}=                                 |
+| No flow accounting anywhere            | router netflow inactive, Prometheus 1 GiB, journals rolled over                     |
+
+The secret one is the finding that mattered. Every Secret in the cluster was readable
+JSON in etcd. Every etcd snapshot inherited it. Anything holding a backup could read
+every credential in the lab.
+
+* The order I chose
+
+Encryption first, because it protects copies that already exist. Then the audit trail,
+because that is what turns the rest from guesswork into evidence. Then the cheap
+documentation work, then enforcement.
+
+That order was right. The execution was not.
+
+* Enabling etcd secret encryption on a running cluster
+
+The documented order for k3s is four steps: run =k3s secrets-encrypt enable=, restart
+all servers with =--secrets-encryption=, verify the hashes match, then =rotate-keys= and
+restart again.
+
+I did step two without step one. The flag on its own makes each server generate its own
+encryption key, under the same key name. Three servers, one name, three different keys.
+
+Nothing failed at deploy time. Every node went Ready. =ops/broken= was green. The
+problem only appeared when I asked a question nothing had asked before:
+
+#+begin_src bash
+# write a Secret through .82, then read it from each server
+kubectl -n default create secret generic probe --from-literal=v=alpha
+# .82 -> ok, .80 -> InternalError, .81 -> InternalError
+#+end_src
+
+The API runs behind a VIP that round-robins between servers. So which server answered
+decided whether your credentials resolved. That was live breakage, and no existing check
+saw it.
+
+* The first repair made it worse
+
+To fix it I merged all three keys into one config file and copied it to every server. I
+also dropped the =identity= provider, because the file only looked like it needed
+=aescbc=.
+
+It needs both. =aescbc= reads encrypted data; =identity= reads data that has never been
+encrypted. At that moment almost everything was in the second category, so the secrets
+cache failed to list and *all three nodes went NotReady*.
+
+The correct file keeps =identity= last, because the first provider is the one that
+writes. With that restored, all three nodes came back, and a Secret written through one
+server read fine from the other two.
+
+=k3s secrets-encrypt reencrypt= then refused with "hash does not match" even though the
+three files were identical by =md5=. That was leftover bookkeeping from the per-server
+keys, so I used =--force= and got =reencrypt_finished=.
+
+* Audit logs are cheap; the volume is not
+
+The audit policy is small. =Metadata= for everything, =Request= level for Secrets only,
+which is enough to attribute a credential read without writing cluster-wide object
+bodies to disk.
+
+One surprise: the API server on the ArgoCD node wrote about 74 MB in twenty minutes,
+against 6 MB on the others. GitOps controllers are chatty. The rotation cap holds it,
+but excluding =system:nodes= and the Cilium and Longhorn service accounts is the next
+change, not something to leave to the cap.
+
+While deploying this I also learned that =--audit-policy-file= is not a k3s server flag
+in v1.34.5. It goes through =--kube-apiserver-arg=. The first deploy attempt rolled back
+with =flag provided but not defined=, and the rollback worked exactly as advertised: the
+previous generation came back, the node rejoined, and no one had to drive anywhere.
+
+* Thirty days of metrics, and the outage it caused
+
+The lab had =--storage.tsdb.retention.size=1GB=. That is honest about disk and useless
+about dates. When I asked what moved 11 GB on a particular evening, the answer had
+already been deleted.
+
+So retention became thirty days by time, with a size cap as a backstop. Both Prometheus
+instances then went into an OOM loop for an hour, restarted every ninety seconds, because
+the memory limit was still the 1 GiB that had been sized for a 1 GiB database.
+
+Every Grafana panel said "no data". The pod said =OOMKilled=. I looked at the panel first
+and should have looked at the pod; the dashboard was the symptom.
+
+* The router: accounting, and a doorway for the parts Terraform cannot reach
+
+The router is the one device OpenTofu does not fully own. The pinned provider has no
+firmware or plugin resource, and the estate's own README says so: firmware, IDS and the
+heartbeat cron are "manual, forever".
+
+That line already pointed at Ansible, so I built a small root for it: one host, one pinned
+collection, one playbook per gap, credentials from Bitwarden by secret id. The first gap
+was =os-vnstat=, the traffic accounting plugin.
+
+Two things are worth recording. The playbook installs the plugin but cannot choose the
+interfaces; that is a one-time GUI step, and the play says so instead of pretending it
+finished. And the collection needs =httpx= in the interpreter that *executes modules*, not
+the one Ansible runs on, which is a different python.
+
+Now the question that started this has an answer:
+
+#+begin_src bash
+ops/traffic hourly
+#  22:00  233.47 MiB rx | 176.66 MiB tx | 410.13 MiB | 14.22 Mbit/s
+#+end_src
+
+* Declaring is not mounting
+
+Twice in one hour, this bit me.
+
+An =ExternalSecret= that replaces a hand-made Secret was added to =manifests/base/monitoring/=
+and rendered as nothing, because that directory's kustomization lists its files by name.
+
+Then a Grafana dashboard ConfigMap was added and existed, and was invisible, because
+Grafana mounts dashboards through a projected volume that names each ConfigMap.
+
+Both were caught the same way: asking the cluster for the object instead of trusting a
+merged pull request. A green PR means the change is in git. It does not mean the change
+is anywhere else.
+
+* What it bought
+
+- A cross-node question now gets asked: does a value written on one node read on another?
+  That was the only check that noticed the encryption break, and nothing asked it before.
+- Traffic has a source on the device that sees it, plus a dashboard built only on series I
+  checked live first. Throughput is split per interface, because "was that the WAN or the
+  LAN?" is the first question a spike raises and a merged graph cannot answer it.
+- A rotated credential is now a diff in git instead of five days of silence. The dead
+  router key was a hand-made Secret that no manifest owned.
+- Vulnerability findings have a policy file. Every accepted risk has an owner and an
+  expiry, so it expires instead of turning into folklore.
+
+* What I would change
+
+The scan came back with 200 CRITICAL findings in images the lab deploys today. Turning the
+gate on immediately would leave the main branch red for a fortnight, so it is report-only
+until the upgrades land, with that condition written in the policy file. That is a
+decision with a date, not an omission.
+
+Two things are still open on purpose. Default-deny NetworkPolicies for the four namespaces
+that hold credentials were not attempted on the same day as a self-inflicted cluster-wide
+incident; one mistake at a time. And the UPS is still the cheapest availability money in
+the house, which is a poor thing to keep deferring.
+
+The theme of the day is simple. The edge of this lab was visible, so I had hardened it.
+The interior was invisible, so I had not. Making it visible took a review, three
+self-inflicted outages, and one new question that should have been asked from the start.
